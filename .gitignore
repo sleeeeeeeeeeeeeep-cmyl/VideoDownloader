@@ -1,0 +1,13 @@
+# never commit a YouTube sign-in or anything from a personal install
+cookies.txt
+cookies.dpapi
+*.cookies
+settings.json
+watch-history*.tsv
+*.log
+*.jsonl
+netcheck*.txt
+wificheck*.txt
+*.zip
+Thumbs.db
+desktop.ini
