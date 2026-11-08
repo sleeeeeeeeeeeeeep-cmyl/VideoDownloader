@@ -157,7 +157,11 @@ if ($IsWin) {
         $acl = Get-Acl -LiteralPath $Base
         if (-not $acl.AreAccessRulesProtected) { throw 'the folder still inherits access from its parent' }
         $who = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique)
-        Expect ($who -join ',') ((@($sid, 'S-1-5-18') | Sort-Object) -join ',')
+        # you and Windows must be there; the Administrators group may be too (it can take over any folder anyway,
+        # and Windows adds it when an administrator account creates the folder); nobody else may be
+        foreach ($must in $sid, 'S-1-5-18') { if ($who -notcontains $must) { throw "missing access for $must (got $($who -join ', '))" } }
+        $others = @($who | Where-Object { $_ -notin @($sid, 'S-1-5-18', 'S-1-5-32-544') })
+        if ($others.Count) { throw "other accounts can open the folder: $($others -join ', ')" }
         $f = Get-Acl -LiteralPath (Join-Path $Base 'settings.json')
         if ($f.AreAccessRulesProtected) { throw 'files should simply inherit from the folder' }
         if (-not (Test-Path -LiteralPath (Join-Path $Base '.private-v2'))) { throw 'not marked as done' }
