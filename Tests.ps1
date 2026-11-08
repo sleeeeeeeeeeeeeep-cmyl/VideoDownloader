@@ -4,6 +4,8 @@
   so a mistake shows up as a red X on GitHub instead of on someone's PC.
   Run them yourself:  powershell -ExecutionPolicy Bypass -File Tests.ps1
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Coloured text for the person watching the console window')]
+param()
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $IsWin = $env:OS -eq 'Windows_NT'
@@ -70,6 +72,26 @@ Check 'the extension only runs on YouTube and asks for no permissions' {
     Expect (@($mf.content_scripts[0].matches) -join ' ') 'https://www.youtube.com/* https://music.youtube.com/*'
 }
 
+# ---------------------------------------------------------------- code analysis
+Write-Host "`nCode analysis (PSScriptAnalyzer: every rule, errors, warnings and information)"
+$psa = Get-Module -ListAvailable PSScriptAnalyzer | Sort-Object Version -Descending | Select-Object -First 1
+if (-not $psa -and $env:GITHUB_ACTIONS) {
+    try { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop; $psa = Get-Module -ListAvailable PSScriptAnalyzer | Select-Object -First 1 } catch { Write-Debug $_ }
+}
+if ($psa) {
+    Import-Module $psa
+    foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Release.ps1', 'Tests.ps1') {
+        Check "$f has no analyzer findings" {
+            $found = @(Invoke-ScriptAnalyzer -Path (Join-Path $root $f) -Severity Error, Warning, Information)
+            if ($found.Count) { throw (($found | ForEach-Object { 'line {0}: {1} ({2})' -f $_.Line, $_.Message, $_.RuleName }) -join ' | ') }
+        }
+    }
+} elseif ($env:GITHUB_ACTIONS) {
+    Check 'PSScriptAnalyzer is available' { $false }
+} else {
+    Write-Host '  (PSScriptAnalyzer is not installed here, so this part is skipped. GitHub always runs it.)' -ForegroundColor Yellow
+}
+
 # ---------------------------------------------------------------- the app's own functions
 Write-Host "`nApp logic"
 $t = $null; $e = $null
@@ -78,8 +100,8 @@ foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Langua
     if ($fn.Name -ne 'Say') { . ([scriptblock]::Create($fn.Extent.Text)) }
 }
 function Say([string]$msg, [string]$color) { }
-$UpdateRepo = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'
-$S = @{ UseCookies = 'auto'; CookieSource = 'file'; CheckAppUpdates = $true }
+$script:UpdateRepo = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'   # (read by the app's functions)
+$script:S = @{ UseCookies = 'auto'; CookieSource = 'file'; CheckAppUpdates = $true }
 
 Check 'download links from web pages: only well-formed jobs run' {
     $cases = @(
@@ -102,13 +124,13 @@ Check 'version numbers compare correctly (4.10 is newer than 4.9)' {
     if ($null -ne (ConvertTo-Version '4.2-beta')) { throw 'odd tags should be ignored' }
     Expect (ConvertTo-Version '4') '4.0'
 }
-Check 'clip times are understood' { Expect (ConvertTo-Seconds '1:02:03') 3723; Expect (ConvertTo-Seconds '90') 90; if ($null -ne (ConvertTo-Seconds 'abc')) { throw 'abc is not a time' } }
+Check 'clip times are understood' { Expect (ConvertFrom-ClockText '1:02:03') 3723; Expect (ConvertFrom-ClockText '90') 90; if ($null -ne (ConvertFrom-ClockText 'abc')) { throw 'abc is not a time' } }
 Check 'watch history: hashtags are left out of searches' { Expect (Get-SearchTitle 'Tariffs be like #shorts #rap') 'Tariffs be like'; Expect (Get-SearchTitle '#shorts') '#shorts' }
 Check 'watch history: search results are matched to the right video' {
     function C($id, $title, $ch) { [pscustomobject]@{ id = $id; title = $title; channel = $ch; uploader = $null } }
-    Expect (Select-SearchMatch @((C 'aaaaaaaaaaa' 'Which AI do I trust the most?? (Top 5 List)' 'CarterPCs')) 'Which AI do I trust the most?? (Top 5 List) #tech #ai' 'CarterPCs').id 'aaaaaaaaaaa'
-    Expect (Select-SearchMatch @((C 'bbbbbbbbbbb' 'Minecraft but ice is op' 'Someone Else')) 'brittle ice is op' 'camman18') ''
-    Expect (Select-SearchMatch @((C 'ccccccccccc' 'Painting then vs now' 'Yahya'), (C 'ddddddddddd' 'Painting now vs back then' 'Yahya')) 'Painting now vs back then' 'Yahya').id 'ddddddddddd'
+    Expect (Select-SearchMatch -cands @((C -id 'aaaaaaaaaaa' -title 'Which AI do I trust the most?? (Top 5 List)' -ch 'CarterPCs')) -title 'Which AI do I trust the most?? (Top 5 List) #tech #ai' -channel 'CarterPCs').id 'aaaaaaaaaaa'
+    Expect (Select-SearchMatch -cands @((C -id 'bbbbbbbbbbb' -title 'Minecraft but ice is op' -ch 'Someone Else')) -title 'brittle ice is op' -channel 'camman18') ''
+    Expect (Select-SearchMatch -cands @((C -id 'ccccccccccc' -title 'Painting then vs now' -ch 'Yahya'), (C -id 'ddddddddddd' -title 'Painting now vs back then' -ch 'Yahya')) -title 'Painting now vs back then' -channel 'Yahya').id 'ddddddddddd'
 }
 
 # ---------------------------------------------------------------- Windows-only: privacy and security features
@@ -118,7 +140,7 @@ if ($IsWin) {
     $Base = Join-Path $tmp 'VideoDownloader'; $TempDir = Join-Path $Base 'temp'
     New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
     $CookieVault = Join-Path $Base 'cookies.dpapi'
-    $CookieEntropy = [System.Text.Encoding]::UTF8.GetBytes('VideoDownloader.cookies.v1')
+    $script:CookieEntropy = [System.Text.Encoding]::UTF8.GetBytes('VideoDownloader.cookies.v1')
     $script:CookieTemps = New-Object System.Collections.Generic.List[string]
     $FirefoxCookies = 'browser:firefox'
     $secret = "# Netscape HTTP Cookie File`n.youtube.com`tTRUE`t/`tTRUE`t0`tSID`tsecret-value-123"
@@ -131,19 +153,19 @@ if ($IsWin) {
         if ([System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($CookieVault)).Contains('secret-value-123')) { throw 'the encrypted copy contains the plain text' }
     }
     Check 'the sign-in can be unlocked for a download, and the plain copy is removed afterwards' {
-        $p = Open-Cookies
+        $p = Open-SignIn
         Expect ([System.IO.File]::ReadAllText($p)) $secret
         [System.IO.File]::AppendAllText($p, "`nrefreshed")      # yt-dlp updates the file while it works
-        Close-Cookies
+        Close-SignIn
         if (Test-Path -LiteralPath $p) { throw 'the plain copy was not removed' }
-        $p2 = Open-Cookies
+        $p2 = Open-SignIn
         if (-not ([System.IO.File]::ReadAllText($p2)).EndsWith('refreshed')) { throw "yt-dlp's refreshed sign-in was not kept" }
-        Close-Cookies
+        Close-SignIn
     }
     Check 'the sign-in is only passed to yt-dlp the right way' {
-        Expect ((Get-CookieArgs 'C:\x\ck.txt') -join ' ') '--cookies C:\x\ck.txt'
-        Expect ((Get-CookieArgs $FirefoxCookies) -join ' ') '--cookies-from-browser firefox'
-        Expect (@(Get-CookieArgs '').Count) 0
+        Expect ((Get-CookieArgumentList 'C:\x\ck.txt') -join ' ') '--cookies C:\x\ck.txt'
+        Expect ((Get-CookieArgumentList $FirefoxCookies) -join ' ') '--cookies-from-browser firefox'
+        Expect (@(Get-CookieArgumentList '').Count) 0
     }
 
     Check 'the data folder becomes private, and files locked by the 4.2 bug are repaired' {
@@ -186,10 +208,10 @@ if ($IsWin) {
 
     Check 'the installer fills in the guide (button script and version)' {
         $ia = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'Install.ps1'), [ref]$t, [ref]$e)
-        $ng = $ia.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'New-Guide' }, $true) | Select-Object -First 1
+        $ng = $ia.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'Write-Guide' }, $true) | Select-Object -First 1
         . ([scriptblock]::Create($ng.Extent.Text))
         $out = Join-Path $tmp 'Guide.html'
-        New-Guide (Join-Path $root 'Guide.html') $out (Join-Path $root 'VideoDownloader.user.js') $ver
+        Write-Guide -template (Join-Path $root 'Guide.html') -out $out -userScript (Join-Path $root 'VideoDownloader.user.js') -version $ver
         $g = [System.IO.File]::ReadAllText($out)
         if ($g.Contains('{{')) { throw 'a {{placeholder}} was left in the guide' }
         if (-not $g.Contains("Video Downloader $ver")) { throw 'the version is missing' }

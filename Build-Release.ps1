@@ -6,6 +6,7 @@
   GitHub runs this automatically when you publish a release (see .github\workflows\ci.yml).
   You can also run it yourself:  powershell -ExecutionPolicy Bypass -File Build-Release.ps1
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Coloured text for the person watching the console window')]
 param([string]$Tag)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -35,9 +36,9 @@ function Copy-To([string]$name, [string]$dir, [string]$as = '') {
 'Setup.cmd', 'README.txt' | ForEach-Object { Copy-To $_ $top }
 'Install.ps1', 'Uninstall.ps1', 'VideoDownloader.ps1', 'VideoDownloader.user.js', 'VideoDownloader.ico', 'Guide.html' | ForEach-Object { Copy-To $_ $files }
 # the browser extension: the same script as the userscript, run as a content script
-Copy-To 'extension-manifest.json' $ext 'manifest.json'
-Copy-To 'VideoDownloader.user.js' $ext 'content.js'
-Copy-To 'extension-icon.png' $ext 'icon-128.png'
+Copy-To -name 'extension-manifest.json' -dir $ext -as 'manifest.json'
+Copy-To -name 'VideoDownloader.user.js' -dir $ext -as 'content.js'
+Copy-To -name 'extension-icon.png' -dir $ext -as 'icon-128.png'
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = Join-Path $dist "VideoDownloader-$ver.zip"

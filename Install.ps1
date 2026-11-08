@@ -2,12 +2,13 @@
   Video Downloader - installer.  Run it with Setup.cmd (double-click).
   Installs for the current Windows user only; no administrator rights needed.
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Coloured text for the person watching the console window')]
 param([switch]$Quiet)
 $ErrorActionPreference = 'Stop'
 # the version is read from the app itself, so it only has to be changed in one place
 $AppVersion = '?'
-try { if ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'VideoDownloader.ps1') -Raw) -match "\`$AppVersion = '([0-9.]+)'") { $AppVersion = $Matches[1] } } catch { }
-try { $Host.UI.RawUI.WindowTitle = 'Video Downloader Setup' } catch { }
+try { if ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'VideoDownloader.ps1') -Raw) -match "\`$AppVersion = '([0-9.]+)'") { $AppVersion = $Matches[1] } } catch { Write-Debug $_ }
+try { $Host.UI.RawUI.WindowTitle = 'Video Downloader Setup' } catch { Write-Debug $_ }
 
 $Src      = $PSScriptRoot
 $Dest     = Join-Path $env:LOCALAPPDATA 'Programs\VideoDownloader'
@@ -48,7 +49,7 @@ Write-Host '  It also installs three free helper programs if you do not have the
 Write-Host '    yt-dlp (does the downloading), FFmpeg (joins video + sound), Deno (needed by YouTube).'
 
 # The guide in the download is a template: the button script and version number are filled in here
-function New-Guide([string]$template, [string]$out, [string]$userScript, [string]$version) {
+function Write-Guide([string]$template, [string]$out, [string]$userScript, [string]$version) {
     $g = [System.IO.File]::ReadAllText($template, [System.Text.Encoding]::UTF8)
     $js = [System.IO.File]::ReadAllText($userScript, [System.Text.Encoding]::UTF8)
     $g = $g.Replace('{{USERSCRIPT}}', [System.Net.WebUtility]::HtmlEncode($js)).Replace('{{VERSION}}', $version)
@@ -88,7 +89,7 @@ if ($missing.Count) {
     if (-not $winget) {
         Bad 'Windows Package Manager (winget) was not found, so the helper programs cannot be installed automatically.'
         Note 'Fix: open the Microsoft Store, search for "App Installer", install or update it, then run Setup again.'
-        try { Start-Process 'ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1' } catch { }
+        try { Start-Process 'ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1' } catch { Write-Debug $_ }
         Finish 1
     }
     foreach ($t in $missing) {
@@ -106,7 +107,7 @@ Step '2/4  Copying Video Downloader'
 # stop a running copy first so its files can be replaced
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like '*VideoDownloader.ps1*' -and $_.CommandLine -like '*-App*' } |
-    ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch { } }
+    ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch { Write-Debug $_ } }
 New-Item -ItemType Directory -Path $Dest -Force | Out-Null
 New-Item -ItemType Directory -Path $Data -Force | Out-Null
 foreach ($f in 'VideoDownloader.ps1', 'VideoDownloader.ico', 'VideoDownloader.user.js', 'Guide.html', 'Uninstall.ps1', 'Install.ps1') {
@@ -114,8 +115,8 @@ foreach ($f in 'VideoDownloader.ps1', 'VideoDownloader.ico', 'VideoDownloader.us
     if (-not (Test-Path -LiteralPath $from)) { throw "Setup is missing a file: $f. Download Video Downloader again and unzip ALL files before running Setup." }
     if ($from -ne (Join-Path $Dest $f)) { Copy-Item -LiteralPath $from -Destination $Dest -Force }
 }
-New-Guide (Join-Path $Src 'Guide.html') (Join-Path $Dest 'Guide.html') (Join-Path $Src 'VideoDownloader.user.js') $AppVersion
-Get-ChildItem -LiteralPath $Dest -File | ForEach-Object { try { Unblock-File -LiteralPath $_.FullName } catch { } }
+Write-Guide -template (Join-Path $Src 'Guide.html') -out (Join-Path $Dest 'Guide.html') -userScript (Join-Path $Src 'VideoDownloader.user.js') -version $AppVersion
+Get-ChildItem -LiteralPath $Dest -File | ForEach-Object { try { Unblock-File -LiteralPath $_.FullName } catch { Write-Debug $_ } }
 Good "Installed to $Dest"
 
 # ---------- 3. connect the browser button + shortcuts ----------
@@ -131,7 +132,7 @@ Set-ItemProperty -Path "$cls\shell\open\command" -Name '(default)' -Value ($hidd
 Good 'Browser button connected (ytdl:// links open Video Downloader)'
 
 $wsh = New-Object -ComObject WScript.Shell
-function New-Shortcut([string]$path, [string]$extra, [string]$desc) {
+function Add-Shortcut([string]$path, [string]$extra, [string]$desc) {
     $lnk = $wsh.CreateShortcut($path)
     $lnk.TargetPath = $Conhost
     $lnk.Arguments = ('--headless "{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" {2}' -f $PsExe, $Script, $extra).Trim()
@@ -141,9 +142,9 @@ function New-Shortcut([string]$path, [string]$extra, [string]$desc) {
     $lnk.WindowStyle = 7
     $lnk.Save()
 }
-New-Shortcut (Join-Path $Programs 'Video Downloader.lnk') '-App' 'Download videos and audio'
+Add-Shortcut -path (Join-Path $Programs 'Video Downloader.lnk') -extra '-App' -desc 'Download videos and audio'
 Good 'Start menu: Video Downloader'
-New-Shortcut (Join-Path $Desktop 'Video Downloader.lnk') '-App' 'Download videos and audio'
+Add-Shortcut -path (Join-Path $Desktop 'Video Downloader.lnk') -extra '-App' -desc 'Download videos and audio'
 Good 'Desktop: Video Downloader'
 
 # an entry in Settings > Apps so it can be removed like any other program
@@ -169,12 +170,12 @@ if (-not $Quiet) {   # (an automatic update shouldn't overwrite what you have on
         Good 'The button script is copied to your clipboard'
     } catch { Bad 'Could not copy to the clipboard - use the Copy button in the guide instead.' }
 }
-Note 'The guide that just opened shows the 3 quick steps to add the button to your browser.'
+if (-not $Quiet) { Note 'The guide that just opened shows the 3 quick steps to add the button to your browser.' }
 
 Write-Host ''
 Write-Host '  All done!  Video Downloader is in your Start menu.' -ForegroundColor Green
 if (-not $Quiet) {
-    try { Start-Process (Join-Path $Dest 'Guide.html') } catch { }
-    try { Start-Process -FilePath $Conhost -ArgumentList ('--headless "{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -App' -f $PsExe, $Script) } catch { }
+    try { Start-Process (Join-Path $Dest 'Guide.html') } catch { Write-Debug $_ }
+    try { Start-Process -FilePath $Conhost -ArgumentList ('--headless "{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -App' -f $PsExe, $Script) } catch { Write-Debug $_ }
 }
 Finish 0

@@ -13,6 +13,10 @@ USE
   - Click the red Download button under any YouTube video, or
   - open "Video Downloader" from the Start menu and paste a link.
 
+HELP
+  Click Help in the Video Downloader window: the guide, "Check for updates now",
+  "Check my connection" and the project page with the full README.
+
 UNINSTALL
   Settings > Apps > Installed apps > Video Downloader > Uninstall.
 

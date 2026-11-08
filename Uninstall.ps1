@@ -11,7 +11,7 @@ $ans = [System.Windows.Forms.MessageBox]::Show(
     "Remove Video Downloader from this PC?`n`nYour downloaded videos stay where they are.",
     'Uninstall Video Downloader', 'YesNo', 'Question')
 if ($ans -ne 'Yes') { exit 0 }
-$keep = [System.Windows.Forms.MessageBox]::Show(
+$deleteData = [System.Windows.Forms.MessageBox]::Show(
     "Also delete your settings, download history, waiting downloads and saved YouTube sign-in?`n`nYes = delete them`nNo = keep them for a future reinstall",
     'Uninstall Video Downloader', 'YesNo', 'Question')
 
@@ -26,11 +26,11 @@ foreach ($lnk in (Join-Path ([Environment]::GetFolderPath('Programs')) 'Video Do
                  (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Video Downloader.lnk')) {
     Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue
 }
-if ($keep -eq 'Yes') { Remove-Item -LiteralPath $Data -Recurse -Force -ErrorAction SilentlyContinue }
+if ($deleteData -eq 'Yes') { Remove-Item -LiteralPath $Data -Recurse -Force -ErrorAction SilentlyContinue }
 
 # this script lives in the folder being removed, so the folder is deleted a moment after it exits
 Start-Process -FilePath "$env:WINDIR\System32\cmd.exe" -ArgumentList ('/c timeout /t 2 /nobreak >nul & rmdir /s /q "{0}"' -f $Dest) -WindowStyle Hidden
 
 [void][System.Windows.Forms.MessageBox]::Show(
-    "Video Downloader was removed.`n`nTwo last things you can do yourself if you like:`n- Remove the Download button: open Tampermonkey's dashboard and delete 'Video Downloader - YouTube button'.`n- The helper programs yt-dlp, FFmpeg and Deno are still installed (other apps may use them). Remove them in Settings > Apps if you don't need them.",
+    "Video Downloader was removed.`n`nTwo last things you can do yourself if you like:`n- Remove the Download button: open Tampermonkey's dashboard and delete 'Video Downloader - YouTube button' (or remove the 'Video Downloader - YouTube button' extension if you used that instead).`n- The helper programs yt-dlp, FFmpeg and Deno are still installed (other apps may use them). Remove them in Settings > Apps if you don't need them.",
     'Uninstall Video Downloader', 'OK', 'Information')

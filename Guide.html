@@ -124,7 +124,8 @@
     <p>Open <b>Video Downloader</b> from the Start menu. Copy a link (from YouTube or most other video sites), and it is filled in for you - pick a type and press <b>Download</b>.
       The window shows progress, lets you <b>Pause</b> and <b>Resume</b>, and lists everything you downloaded (double-click a finished one to find the file).</p>
     <table>
-      <tr><th>Option</th><th>What you get</th></tr>
+      <thead><tr><th>Option</th><th>What you get</th></tr></thead>
+      <tbody>
       <tr><td>Video</td><td>Good quality (1080p) in a small file. Best for watching on this PC.</td></tr>
       <tr><td>Phone</td><td>An MP4 that plays on every iPhone and Android phone and in every messaging app (720p).</td></tr>
       <tr><td>Best quality</td><td>The highest quality available, up to 4K/8K. Big files.</td></tr>
@@ -133,6 +134,7 @@
       <tr><td>Clip</td><td>Only the part between two times you choose.</td></tr>
       <tr><td>Whole playlist</td><td>Paste a playlist link in the window. Videos you already have are skipped.</td></tr>
       <tr><td>Shrink</td><td>Downloads, then re-encodes to a much smaller file. Slow, but great for saving space.</td></tr>
+      </tbody>
     </table>
     <p>Files go to <code>Downloads\Videos</code>, <code>Downloads\Audio</code> and (for Phone) iCloud Drive or <code>Downloads\Phone</code>.
       Change folders, quality, file names, subtitles and more in <b>Settings</b>.</p>
@@ -200,26 +202,35 @@
       <ul><li>Refresh the YouTube page.</li>
         <li>Check that Tampermonkey shows the script as <b>enabled</b> (Tampermonkey icon &rarr; Dashboard).</li>
         <li>Chrome / Edge / Opera: make sure <b>Allow User Scripts</b> (or Developer mode) is on - see step 2 above.</li>
-        <li>Long videos: the button sits next to Like/Share. If YouTube has no room there it moves under the title, or to the bottom-right corner.</li></ul></details>
+        <li>Long videos: the button sits next to Like/Share. If YouTube has no room there it moves under the title, or to the bottom-right corner.</li>
+        <li>Still nothing? Every release on the project page also has the button as a browser extension (no Tampermonkey needed) - see the README there.</li></ul></details>
     <details><summary>I click Download but nothing happens</summary>
       <p>Your browser may have blocked the "Open Video Downloader?" question. Look for a small icon in the address bar, or run Setup again to reconnect the button.
       You can always paste the link into the Video Downloader window instead.</p></details>
     <details><summary>A download failed</summary>
       <p>Open Video Downloader and double-click the red line to see why. Common reasons: the video is private or removed; it is age-restricted
-      (see above); or YouTube changed something - the downloader updates itself and retries automatically.</p></details>
+      (see above); or YouTube changed something - the downloader updates itself and retries automatically. If it keeps failing,
+      click <b>Help &rarr; Check for updates now</b> in the window.</p></details>
     <details><summary>"YouTube is blocking downloads" or "Waiting for the internet"</summary>
       <p>Your downloads are safe in the queue. Turn off any VPN, check your Wi-Fi, wait a bit (YouTube's block usually lifts within an hour) and press <b>Resume</b>.</p></details>
     <details><summary>"Your network is blocking secure connections" (self-signed certificate)</summary>
       <p>Something between your PC and the internet is answering secure (https) connections with its own certificate instead of YouTube's.
       This usually comes from a router or ISP filter, parental controls, a work/school network, or security software that "scans" encrypted traffic.
-      It also breaks other apps that check certificates strictly (for example Apple sign-ins). Your downloads stay in the queue; they continue on a
+      It can also break other apps that check certificates strictly. Your downloads stay in the queue; they continue on a
       connection that isn't filtered, or once whoever manages the network or security software turns that filtering off for this PC.</p></details>
     <details><summary>Downloads are slow</summary>
-      <p>Usually it's the connection: VPNs, a busy network, or YouTube limiting speed. In Settings &rarr; Network, set <i>Parallel download pieces</i> to 8.</p></details>
+      <p>Usually it's the connection: VPNs, a busy network, or YouTube limiting speed. In Settings &rarr; Network, set <i>Parallel download pieces</i> to 8.
+      To see what's going on, click <b>Help &rarr; Check my connection</b>: after about two minutes a report opens with your Wi-Fi signal, band,
+      ping times and a speed test.</p></details>
     <details><summary>Windows said "Windows protected your PC" when I ran Setup</summary>
       <p>That appears for any program that isn't from the Microsoft Store. Click <b>More info</b> &rarr; <b>Run anyway</b>. Video Downloader is a plain PowerShell script you can read in Notepad.</p></details>
     <details><summary>Where are the log files?</summary>
-      <p>In <code>%LOCALAPPDATA%\VideoDownloader</code>: <code>history.log</code> (every download), <code>runner.log</code> (the last downloads in detail) and <code>error.log</code>.</p></details>
+      <p>Click <b>Help &rarr; Open the data folder</b> (it's <code>%LOCALAPPDATA%\VideoDownloader</code>): <code>history.log</code> (every download), <code>runner.log</code> (the last downloads in detail) and <code>error.log</code>.
+      Logs are trimmed automatically, and connection reports are deleted after 30 days.</p></details>
+    <details><summary>How do I update Video Downloader?</summary>
+      <p>When a new version is out, a blue <b>"Version ... is out - update"</b> link appears at the top right of the window. Click it and choose <b>Yes</b>:
+      it downloads the new version, checks it against its published checksum, installs it and reopens the window. Your settings and downloads are kept.
+      yt-dlp and Deno (the parts that talk to YouTube) update themselves every week; <b>Help &rarr; Check for updates now</b> does it straight away.</p></details>
   </section>
 
   <section id="remove">
