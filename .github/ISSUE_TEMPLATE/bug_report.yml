@@ -1,3 +1,4 @@
+---
 name: Something doesn't work
 description: Report a bug in Video Downloader or the YouTube button
 labels: [bug]
@@ -10,8 +11,8 @@ body:
     id: version
     attributes:
       label: Video Downloader version
-      description: At the bottom of the guide (Help button in the app), or in Windows Settings > Apps > Installed apps.
-      placeholder: "4.4"
+      description: At the bottom of the guide (Help > Open the guide), or in Windows Settings > Apps > Installed apps.
+      placeholder: "4.5"
     validations:
       required: true
   - type: dropdown
@@ -37,5 +38,7 @@ body:
     id: error
     attributes:
       label: Error message
-      description: Double-click the red line in the Video Downloader window and copy the message here. You can also attach error.log from %LOCALAPPDATA%\VideoDownloader - read it first and remove anything private.
+      description: >-
+        Double-click the red line in the Video Downloader window and copy the message here.
+        You can also attach error.log (Help > Open the data folder) - read it first and remove anything private.
       render: text
