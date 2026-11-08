@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Video Downloader - YouTube button",
+  "short_name": "Video Downloader",
+  "version": "4.4",
+  "description": "Adds a Download button under YouTube videos that sends them to the free Video Downloader app on your Windows PC.",
+  "homepage_url": "https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader",
+  "icons": { "128": "icon-128.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*", "https://music.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "videodownloader@sleeeeeeeeeeeeeep-cmyl.github.io",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  }
+}

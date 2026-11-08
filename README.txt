@@ -1,5 +1,5 @@
-VIDEO DOWNLOADER 4.3
-====================
+VIDEO DOWNLOADER
+================
 Download YouTube videos, Shorts and music (and videos from most other sites)
 to your Windows PC or your phone. Free, no ads, no account.
 

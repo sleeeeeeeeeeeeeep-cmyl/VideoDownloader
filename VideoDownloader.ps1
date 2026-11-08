@@ -1,5 +1,5 @@
 <#
-  Video Downloader 4.3
+  Video Downloader 4.4
   Download videos and audio from YouTube (and most other video sites) with yt-dlp.
 
     No arguments / -App    the Video Downloader window (paste links, watch progress, pause, settings)
@@ -13,9 +13,9 @@
   Your settings live in %LOCALAPPDATA%\VideoDownloader\settings.json - change them in the Settings window.
 #>
 param([string]$Uri, [switch]$App, [switch]$AutoOpened, [switch]$RunQueue, [switch]$Settings, [switch]$Menu, [switch]$UpdateNow, [switch]$NetCheck,
-      [switch]$History, [string]$HistoryTask, [string]$Path, [switch]$CheckApp)
+      [switch]$History, [string]$HistoryTask, [string]$Path, [switch]$CheckApp, [switch]$UpdateApp)
 
-$AppVersion = '4.3'
+$AppVersion = '4.4'
 $UpdateRepo = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'   # GitHub project: new versions are announced here
 
 # ============================== DEFAULT SETTINGS ==============================
@@ -70,6 +70,7 @@ $Defaults = [ordered]@{
     Fragments         = 4
     SpeedLimit        = 0           # MB/s, 0 = unlimited
     UseCookies        = 'auto'      # auto | always | never
+    CookieSource      = 'file'      # file (an exported cookies.txt, kept encrypted) | firefox (read straight from Firefox)
 }
 # ================================================================================
 
@@ -90,7 +91,41 @@ foreach ($d in $Base, $QueueDir, $RunDir, $TempDir) {
     if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
 }
 
+# ---------- the data folder is private to your Windows account ----------
+# It holds your sign-in, history and network reports, so only your account (and Windows itself) may open it.
+# (4.2 did this with "icacls /T", which also stripped the existing files and locked you out of them; v2 repairs that.)
+function Protect-DataFolder {
+    if ($env:OS -ne 'Windows_NT') { return }
+    $mark = Join-Path $Base '.private-v2'
+    if (Test-Path -LiteralPath $mark) { return }
+    $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try {
+        $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $icacls = Join-Path $env:WINDIR 'System32\icacls.exe'
+        # 1. the folder itself: only you and Windows, passed down to everything inside
+        $null = & $icacls $Base '/inheritance:r' '/grant:r' "*${sid}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '/Q' 2>&1
+        $ok = ($LASTEXITCODE -eq 0)
+        # 2. everything inside simply inherits that (no separate rules of its own)
+        $null = & $icacls (Join-Path $Base '*') '/reset' '/T' '/C' '/Q' 2>&1
+        # 3. anything still unreadable gets inheritance switched back on directly (you own these files, so this is allowed)
+        foreach ($f in Get-ChildItem -LiteralPath $Base -Recurse -Force -ErrorAction SilentlyContinue) {
+            try { if (-not $f.PSIsContainer) { [System.IO.File]::OpenRead($f.FullName).Dispose() } }
+            catch {
+                try {
+                    $fs = if ($f.PSIsContainer) { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }
+                    $fs.SetAccessRuleProtection($false, $false)
+                    if ($f.PSIsContainer) { [System.IO.Directory]::SetAccessControl($f.FullName, $fs) } else { [System.IO.File]::SetAccessControl($f.FullName, $fs) }
+                } catch { $ok = $false }
+            }
+        }
+        if ($ok) { Set-Content -LiteralPath $mark -Value (Get-Date -Format o) }
+    } catch { } finally { $ErrorActionPreference = $eap }
+}
+Protect-DataFolder
+
+
 function Show-ErrorBox([string]$text, [string]$title = 'Video Downloader') {
+    if ($env:VIDEODOWNLOADER_TEST) { return }   # automatic tests: no pop-ups
     try {
         Add-Type -AssemblyName System.Windows.Forms
         [void][System.Windows.Forms.MessageBox]::Show($text, $title, 'OK', 'Warning')
@@ -106,7 +141,7 @@ trap {
         Write-Host "`n$err" -ForegroundColor Red
         Write-Host "`nSomething went wrong - this was saved to $ErrorLog" -ForegroundColor Yellow
         try { Read-Host 'Press Enter to close' | Out-Null } catch { Start-Sleep 30 }
-    } elseif (-not $RunQueue -and -not $UpdateNow -and -not $HistoryTask -and -not $NetCheck -and -not $CheckApp) {
+    } elseif (-not $RunQueue -and -not $UpdateNow -and -not $HistoryTask -and -not $NetCheck -and -not $CheckApp -and -not $UpdateApp) {
         Show-ErrorBox ("Something went wrong:`n`n{0}`n`nThe details were saved to:`n{1}" -f $_.Exception.Message, $ErrorLog)
     }
     exit 1
@@ -489,7 +524,7 @@ function Get-JobArgs($job, [string]$listFile, [string]$dirOverride) {
 # Runs yt-dlp, turning its progress lines into status updates (and a live progress line in the text version)
 function Invoke-YtDlp($job, [string]$listFile, [string]$dirOverride, [string]$cookieFile) {
     $argList = @($YtSafeArgs) + @(Get-JobArgs $job $listFile $dirOverride)
-    if ($cookieFile) { $argList += @('--cookies', $cookieFile) }
+    if ($cookieFile) { $argList += @(Get-CookieArgs $cookieFile) }
     $argList += @('--newline',
                   '--progress-template', 'download:VDLP|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(info.title)s',
                   '--progress-template', 'postprocess:VDLPP|%(progress.postprocessor)s|%(info.title)s',
@@ -755,10 +790,23 @@ function Protect-CookieFile {
         } catch { }
     }
 }
-function Test-HasCookies { return ((Test-Path -LiteralPath $CookieVault) -or [bool](Get-PlainCookies)) }
+# Firefox keeps its cookies in a file yt-dlp can read directly (Chrome and Edge encrypt theirs so other programs can't)
+$FirefoxCookies = 'browser:firefox'
+function Test-FirefoxProfile { return [bool](Get-ChildItem -LiteralPath (Join-Path $env:APPDATA 'Mozilla\Firefox\Profiles') -Filter 'cookies.sqlite' -Recurse -Depth 1 -File -ErrorAction SilentlyContinue | Select-Object -First 1) }
+function Test-HasCookies {
+    if ([string]$S.CookieSource -eq 'firefox') { return (Test-FirefoxProfile) }
+    return ((Test-Path -LiteralPath $CookieVault) -or [bool](Get-PlainCookies))
+}
+# the yt-dlp options for a sign-in from Open-Cookies
+function Get-CookieArgs([string]$c) {
+    if (-not $c) { return @() }
+    if ($c -eq $FirefoxCookies) { return @('--cookies-from-browser', 'firefox') }
+    return @('--cookies', $c)
+}
 function Test-YouTubeUrl([string]$u) { return $u -match '^https?://([A-Za-z0-9-]+\.)*(youtube\.com|youtu\.be|youtube-nocookie\.com)([/:?#]|$)' }
 # a path yt-dlp can use, or $null when there is no saved sign-in
 function Open-Cookies {
+    if ([string]$S.CookieSource -eq 'firefox') { if (Test-FirefoxProfile) { return $FirefoxCookies } else { return $null } }
     Protect-CookieFile
     if (Test-Path -LiteralPath $CookieVault) {
         try {
@@ -816,6 +864,48 @@ function Invoke-AppUpdateCheck {
     } catch { }
     try { [System.IO.File]::WriteAllText($AppUpdateFile, ($o | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding($false))) } catch { }
 }
+# "Update now": download the newest release, check it against the release's SHA-256 list, install it quietly, reopen.
+# Runs in its own hidden process, because the installer closes the Video Downloader window while it replaces the files.
+function Invoke-AppUpdate {
+    $work = Join-Path $TempDir ('update-' + [guid]::NewGuid().ToString('N'))
+    $page = $ReleasesPage
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $hdr = @{ 'User-Agent' = 'VideoDownloader'; 'Accept' = 'application/vnd.github+json' }
+        $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$UpdateRepo/releases/latest" -Headers $hdr -TimeoutSec 30
+        if ([string]$r.html_url -match ('^https://github\.com/' + [regex]::Escape($UpdateRepo) + '/releases/tag/[A-Za-z0-9._-]+$')) { $page = [string]$r.html_url }
+        $new = ConvertTo-Version ([string]$r.tag_name)
+        if (-not $new -or $new -le (ConvertTo-Version $AppVersion)) { Show-ErrorBox "You already have the newest version ($AppVersion)."; return }
+        $dlPrefix = 'https://github.com/' + $UpdateRepo + '/releases/download/'
+        $zipA = @($r.assets | Where-Object { $_.name -match '^VideoDownloader-[0-9.]+\.zip$' }) | Select-Object -First 1
+        $sumA = @($r.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' }) | Select-Object -First 1
+        if (-not $zipA -or -not $sumA -or -not ([string]$zipA.browser_download_url).StartsWith($dlPrefix) -or -not ([string]$sumA.browser_download_url).StartsWith($dlPrefix)) {
+            throw 'This release has no installer ZIP with a checksum list yet.'
+        }
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $zip = Join-Path $work $zipA.name; $sums = Join-Path $work 'SHA256SUMS.txt'
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $zipA.browser_download_url -OutFile $zip -UseBasicParsing -Headers @{ 'User-Agent' = 'VideoDownloader' } -TimeoutSec 300
+        Invoke-WebRequest -Uri $sumA.browser_download_url -OutFile $sums -UseBasicParsing -Headers @{ 'User-Agent' = 'VideoDownloader' } -TimeoutSec 60
+        $want = ''
+        foreach ($l in Get-Content -LiteralPath $sums) { if ($l -match ('^([0-9A-Fa-f]{64})\s+\*?' + [regex]::Escape($zipA.name) + '\s*$')) { $want = $Matches[1] } }
+        $got = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+        if (-not $want -or $got -ne $want.ToUpper()) { throw 'The download did not match its published checksum, so it was not installed.' }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, (Join-Path $work 'x'))
+        $inst = Get-ChildItem -LiteralPath (Join-Path $work 'x') -Filter 'Install.ps1' -File -Recurse | Select-Object -First 1
+        if (-not $inst) { throw 'The download has no Install.ps1.' }
+        $ps = Join-Path $PSHOME 'powershell.exe'
+        $p = Start-Process -FilePath $ps -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "{0}" -Quiet' -f $inst.FullName) -WindowStyle Hidden -Wait -PassThru
+        if ($p.ExitCode -ne 0) { throw "The installer stopped with code $($p.ExitCode)." }
+        Write-Log ("UPDATE installed version {0}" -f $new)
+        Start-Hidden @('-App')
+    } catch {
+        try { Add-Content -LiteralPath $ErrorLog -Value ("{0:yyyy-MM-dd HH:mm:ss}  update failed: {1}" -f (Get-Date), $_.Exception.Message) -Encoding UTF8 } catch { }
+        Show-ErrorBox ("Video Downloader couldn't update itself:`n`n{0}`n`nThe download page will open so you can update by hand." -f $_.Exception.Message)
+        try { Start-Process $page } catch { }
+    } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+}
 function Test-AppUpdateDue {
     if (-not [bool]$S.CheckAppUpdates -or $env:OS -ne 'Windows_NT') { return $false }
     if (-not (Test-Path -LiteralPath $AppUpdateFile)) { return $true }
@@ -833,19 +923,6 @@ function Get-AppUpdate {
 }
 
 # ---------- privacy: a private data folder, short logs, old reports removed ----------
-# The data folder holds your sign-in, history and network reports, so only your Windows account (and Windows itself) may open it.
-function Protect-DataFolder {
-    if ($env:OS -ne 'Windows_NT') { return }
-    $mark = Join-Path $Base '.private-v1'
-    if (Test-Path -LiteralPath $mark) { return }
-    try {
-        $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-        $icacls = Join-Path $env:WINDIR 'System32\icacls.exe'
-        $ErrorActionPreference = 'Continue'
-        $null = & $icacls $Base '/inheritance:r' '/grant:r' "*${sid}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '/T' '/C' '/Q' 2>&1
-        if ($LASTEXITCODE -eq 0) { Set-Content -LiteralPath $mark -Value (Get-Date -Format o) }
-    } catch { }
-}
 function Limit-File([string]$path, [long]$max, [int]$keep) {
     try {
         if (-not (Test-Path -LiteralPath $path)) { return }
@@ -1167,6 +1244,8 @@ $SettingDefs = @(
        Names = @{ '0' = 'No limit'; '10' = '10 MB/s'; '5' = '5 MB/s'; '2' = '2 MB/s'; '1' = '1 MB/s' } }
     @{ Tab = 'Network'; Key = 'UseCookies';    Label = 'Use your YouTube sign-in'; Kind = 'choice'; Choices = @('auto', 'always', 'never')
        Names = @{ 'auto' = 'Only when a video needs it (recommended)'; 'always' = 'Always'; 'never' = 'Never' } }
+    @{ Tab = 'Network'; Key = 'CookieSource';  Label = 'Where your sign-in comes from'; Kind = 'choice'; Choices = @('file', 'firefox')
+       Names = @{ 'file' = 'A cookies.txt file (see Help)'; 'firefox' = 'Firefox (just stay signed in to YouTube there)' } }
 )
 
 function Format-Setting($def, $v) {
@@ -1573,7 +1652,13 @@ function Join-TitleMatches($db) {
     return $n
 }
 
+# Hashtags (#shorts #tech ...) make poor search words and are often edited later, so they're left out when comparing titles
+function Get-SearchTitle([string]$t) {
+    $c = (($t -replace '(^|\s)#[\p{L}\p{N}_]+', ' ') -replace '\s+', ' ').Trim()
+    if ($c) { return $c } else { return $t }
+}
 function Get-TitleSimilarity([string]$a, [string]$b) {
+    $a = Get-SearchTitle $a; $b = Get-SearchTitle $b
     $na = Get-NormText $a; $nb = Get-NormText $b
     if (-not $na -or -not $nb) { return 0.0 }
     if ($na -eq $nb) { return 1.0 }
@@ -1593,7 +1678,10 @@ function Select-SearchMatch($cands, [string]$title, [string]$channel) {
         $cc = if ($c.channel) { [string]$c.channel } else { [string]$c.uploader }
         $chanEq = [bool]($nc -and (Get-NormText $cc) -eq $nc)
         $sim = Get-TitleSimilarity $title ([string]$c.title)
-        $ok = ($chanEq -and $sim -ge 0.5) -or ($sim -ge 1.0 -and (Get-NormText $title).Length -ge 12)
+        $len = (Get-NormText (Get-SearchTitle $title)).Length
+        # same channel and a fair share of the same words (titles get edited), or a long title that is almost the same
+        # when the result doesn't say who uploaded it (Shorts results often don't)
+        $ok = ($chanEq -and $sim -ge 0.35) -or ($sim -ge 1.0 -and $len -ge 12) -or (-not $cc -and $sim -ge 0.8 -and $len -ge 10)
         if (-not $ok) { continue }
         $score = $sim + [int]$chanEq
         if ($score -gt $bestScore) { $best = $c; $bestScore = $score }
@@ -1603,6 +1691,13 @@ function Select-SearchMatch($cands, [string]$title, [string]$channel) {
 
 # Takeout files without links: search YouTube for each title + channel to find the video (and its length)
 function Invoke-HistorySearch($db, [string]$doneMsg = '') {
+    # titles an older, stricter version gave up on get one more try
+    $mk = Join-Path $Base '.history-matcher-v2'
+    if (-not (Test-Path -LiteralPath $mk)) {
+        foreach ($e in $db.Values) { if ($e.id.StartsWith('~') -and $e.d -eq -1) { $e.d = $null } }
+        Save-WatchHistory $db
+        try { Set-Content -LiteralPath $mk -Value (Get-Date -Format o) } catch { }
+    }
     $todo = @($db.Values | Where-Object { $_.id.StartsWith('~') -and $null -eq $_.d } | Sort-Object { [string]$_.w } -Descending)
     $total = $todo.Count
     if ($total -eq 0) { return $true }
@@ -1618,11 +1713,11 @@ function Invoke-HistorySearch($db, [string]$doneMsg = '') {
             $map = @{}
             $argList = @('--flat-playlist', '--ignore-errors', '--no-warnings', '--print', 'VDS%(.{id,duration,channel,uploader,title,playlist_id})j', '--')
             foreach ($e in @($todo[$a..$b])) {
-                $q = (((Get-CleanField $e.t) + ' ' + (Get-CleanField $e.c)) -replace '\s+', ' ').Trim()
+                $q = (((Get-SearchTitle (Get-CleanField $e.t)) + ' ' + (Get-CleanField $e.c)) -replace '\s+', ' ').Trim()
                 if ($q.Length -gt 200) { $q = $q.Substring(0, 200).Trim() }
                 if (-not $q -or $map.ContainsKey($q)) { continue }
                 $map[$q] = $e
-                $argList += "ytsearch5:$q"
+                $argList += "ytsearch6:$q"
             }
             $p = Start-YtDlpCapture $argList
             $jobs += @{ p = $p; map = $map; n = ($b - $a + 1); out = $p.StandardOutput.ReadToEndAsync(); err = $p.StandardError.ReadToEndAsync() }
@@ -1729,8 +1824,8 @@ function Invoke-HistoryFetch($db) {
         return $false
     }
     Set-WhStatus @{ state = 'running'; task = 'fetch'; message = 'Reading your watch history from YouTube...'; done = 0; total = 0 }
-    $p = Start-YtDlpCapture @('--cookies', $cookies, '--flat-playlist', '--ignore-errors', '--playlist-end', '5000',
-                              '--print', 'VDH|%(id)s|%(duration)s|%(channel,uploader|)s|%(title)s', ':ythistory')
+    $p = Start-YtDlpCapture (@(Get-CookieArgs $cookies) + @('--flat-playlist', '--ignore-errors', '--playlist-end', '5000',
+                              '--print', 'VDH|%(id)s|%(duration)s|%(channel,uploader|)s|%(title)s', ':ythistory'))
     $errTask = $p.StandardError.ReadToEndAsync()
     $i = 0; $now = (Get-Date).ToUniversalTime()
     while ($null -ne ($line = $p.StandardOutput.ReadLine())) {
@@ -1791,7 +1886,7 @@ function Invoke-HistoryLengths($db, [string]$doneMsg = '') {
             $argList = @('--skip-download', '--ignore-errors', '--ignore-no-formats-error', '--no-warnings', '--no-playlist',
                          '--extractor-args', 'youtube:skip=hls,dash,translated_subs',
                          '--print', 'VDL|%(id)s|%(duration)s|%(channel,uploader|)s|%(title)s')
-            if ($cookies) { $argList += @('--cookies', $cookies) }
+            if ($cookies) { $argList += @(Get-CookieArgs $cookies) }
             $argList += '--'
             $argList += @($ids | ForEach-Object { "https://www.youtube.com/watch?v=$_" })
             $p = Start-YtDlpCapture $argList
@@ -2246,7 +2341,7 @@ function Update-AppView([switch]$Force) {
         if ($stamp -ne $script:UpdSeen) {
             $script:UpdSeen = $stamp
             $u = Get-AppUpdate
-            if ($u) { $script:UpdLink.Text = "Version $($u.latest) is out - get it"; $script:UpdLink.Tag = [string]$u.url; $script:UpdLink.Visible = $true }
+            if ($u) { $script:UpdLink.Text = "Version $($u.latest) is out - update"; $script:UpdLink.Tag = [string]$u.url; $script:UpdLink.Visible = $true }
             else { $script:UpdLink.Visible = $false }
         }
     }
@@ -2442,7 +2537,10 @@ function Show-App {
     $script:UpdLink.Add_LinkClicked({
         $u = [string]$script:UpdLink.Tag
         if ($u -notmatch ('^https://github\.com/' + [regex]::Escape($UpdateRepo) + '/')) { $u = $ReleasesPage }
-        Start-Process $u
+        $a = [System.Windows.Forms.MessageBox]::Show(("{0}`n`nYes = update now (this window closes and reopens by itself; your downloads and settings are kept)`nNo = just show me what's new" -f $script:UpdLink.Text),
+                'Update Video Downloader', 'YesNoCancel', 'Question')
+        if ($a -eq 'Yes') { $script:UpdLink.Text = 'Updating...'; $script:UpdLink.Enabled = $false; Start-Hidden @('-UpdateApp') }
+        elseif ($a -eq 'No') { Start-Process $u }
     })
     $form.Controls.Add($script:UpdLink)
     $script:UpdSeen = $null
@@ -2598,13 +2696,13 @@ if ($PSBoundParameters.ContainsKey('Uri')) {
         exit 1
     }
 }
-Protect-DataFolder
 Protect-CookieFile
 Limit-PrivateData
 try { Add-Content -LiteralPath (Join-Path $Base 'runs.log') -Value ("{0:yyyy-MM-dd HH:mm:ss}  v{1} uri='{2}' app={3} run={4} settings={5} menu={6}" -f (Get-Date), $AppVersion, $Uri, [bool]$App, [bool]$RunQueue, [bool]$Settings, [bool]$Menu) -Encoding UTF8 } catch { }
 
 if ($Settings) { Show-Settings; exit 0 }
 if ($CheckApp) { Invoke-AppUpdateCheck; exit 0 }
+if ($UpdateApp) { Invoke-AppUpdate; exit 0 }
 
 Initialize-Tools
 

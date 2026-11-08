@@ -4,7 +4,9 @@
 #>
 param([switch]$Quiet)
 $ErrorActionPreference = 'Stop'
-$AppVersion = '4.3'
+# the version is read from the app itself, so it only has to be changed in one place
+$AppVersion = '?'
+try { if ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'VideoDownloader.ps1') -Raw) -match "\`$AppVersion = '([0-9.]+)'") { $AppVersion = $Matches[1] } } catch { }
 try { $Host.UI.RawUI.WindowTitle = 'Video Downloader Setup' } catch { }
 
 $Src      = $PSScriptRoot
@@ -44,6 +46,14 @@ Write-Host '  ==============================================' -ForegroundColor R
 Write-Host '  This installs Video Downloader for your Windows account.'
 Write-Host '  It also installs three free helper programs if you do not have them:'
 Write-Host '    yt-dlp (does the downloading), FFmpeg (joins video + sound), Deno (needed by YouTube).'
+
+# The guide in the download is a template: the button script and version number are filled in here
+function New-Guide([string]$template, [string]$out, [string]$userScript, [string]$version) {
+    $g = [System.IO.File]::ReadAllText($template, [System.Text.Encoding]::UTF8)
+    $js = [System.IO.File]::ReadAllText($userScript, [System.Text.Encoding]::UTF8)
+    $g = $g.Replace('{{USERSCRIPT}}', [System.Net.WebUtility]::HtmlEncode($js)).Replace('{{VERSION}}', $version)
+    [System.IO.File]::WriteAllText($out, $g, (New-Object System.Text.UTF8Encoding($false)))
+}
 
 # ---------- 1. helper programs ----------
 function Find-Tool([string]$exe, [string]$packagePrefix) {
@@ -104,6 +114,7 @@ foreach ($f in 'VideoDownloader.ps1', 'VideoDownloader.ico', 'VideoDownloader.us
     if (-not (Test-Path -LiteralPath $from)) { throw "Setup is missing a file: $f. Download Video Downloader again and unzip ALL files before running Setup." }
     if ($from -ne (Join-Path $Dest $f)) { Copy-Item -LiteralPath $from -Destination $Dest -Force }
 }
+New-Guide (Join-Path $Src 'Guide.html') (Join-Path $Dest 'Guide.html') (Join-Path $Src 'VideoDownloader.user.js') $AppVersion
 Get-ChildItem -LiteralPath $Dest -File | ForEach-Object { try { Unblock-File -LiteralPath $_.FullName } catch { } }
 Good "Installed to $Dest"
 
@@ -152,10 +163,12 @@ Good 'Listed in Settings > Apps (uninstall from there)'
 
 # ---------- 4. the browser part ----------
 Step '4/4  The Download button for YouTube'
-try {
-    Set-Clipboard -Value (Get-Content -LiteralPath (Join-Path $Dest 'VideoDownloader.user.js') -Raw -Encoding UTF8)
-    Good 'The button script is copied to your clipboard'
-} catch { Bad 'Could not copy to the clipboard - use the Copy button in the guide instead.' }
+if (-not $Quiet) {   # (an automatic update shouldn't overwrite what you have on the clipboard)
+    try {
+        Set-Clipboard -Value (Get-Content -LiteralPath (Join-Path $Dest 'VideoDownloader.user.js') -Raw -Encoding UTF8)
+        Good 'The button script is copied to your clipboard'
+    } catch { Bad 'Could not copy to the clipboard - use the Copy button in the guide instead.' }
+}
 Note 'The guide that just opened shows the 3 quick steps to add the button to your browser.'
 
 Write-Host ''
