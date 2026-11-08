@@ -9,6 +9,7 @@ A free Windows app that adds a **Download** button under YouTube videos and save
 - **Queue** that survives restarts, with pause/resume and automatic retry when the connection drops
 - **Watch history:** import your Google Takeout history and sort what you've watched by length
 - **Keeps itself working:** updates yt-dlp and Deno automatically, since YouTube changes often
+- **Tells you about new versions**, and the YouTube button updates itself through Tampermonkey
 
 ## Install
 
@@ -23,7 +24,7 @@ A free Windows app that adds a **Download** button under YouTube videos and save
 
 ## Privacy and security
 
-- Nothing is sent anywhere except to the video site you download from (and winget for updates). No analytics.
+- Nothing about you is sent anywhere. The app only talks to the video site you download from, winget (to update its helpers) and, once a day, GitHub to see if a new version is out (only the version number is fetched; turn it off in Settings). No analytics.
 - Optional YouTube sign-in (for age-restricted videos) is **encrypted with Windows DPAPI**, tied to your Windows account, and only ever used for YouTube links.
 - `ytdl://` links from web pages are strictly validated; anything else is refused.
 - yt-dlp runs with `--ignore-config --no-plugin-dirs`, so config files or plugins planted elsewhere can't change what it does.
@@ -36,10 +37,10 @@ Found a security problem? Please open an issue (without posting any cookies or p
 | File | What it is |
 |---|---|
 | `Setup.cmd` | Double-click to install |
-| `files/VideoDownloader.ps1` | The app (PowerShell + Windows Forms) |
-| `files/Install.ps1`, `files/Uninstall.ps1` | Installer / uninstaller |
-| `files/VideoDownloader.user.js` | The YouTube Download button (Tampermonkey userscript) |
-| `files/Guide.html` | Setup guide shown after install |
+| `VideoDownloader.ps1` | The app (PowerShell + Windows Forms) |
+| `Install.ps1`, `Uninstall.ps1` | Installer / uninstaller |
+| `VideoDownloader.user.js` | The YouTube Download button (Tampermonkey userscript) |
+| `Guide.html` | Setup guide shown after install |
 
 ## Please use responsibly
 
