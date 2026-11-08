@@ -772,7 +772,8 @@ function Write-CookieVault([byte[]]$plain) {
     Move-Item -LiteralPath $tmp -Destination $CookieVault -Force
 }
 function Get-PlainCookies {
-    foreach ($c in (Join-Path $Base 'cookies.txt'), (Join-Path $PSScriptRoot 'cookies.txt')) {
+    $dirs = @($Base); if ($PSScriptRoot) { $dirs += $PSScriptRoot }   # (empty when the function is loaded on its own, e.g. by Tests.ps1)
+    foreach ($c in @($dirs | ForEach-Object { Join-Path $_ 'cookies.txt' })) {
         if (Test-Path -LiteralPath $c) { return $c }
     }
     return $null
@@ -780,7 +781,8 @@ function Get-PlainCookies {
 # a cookies.txt you just exported is moved into the encrypted store (and the plain file deleted)
 function Protect-CookieFile {
     if ($env:OS -ne 'Windows_NT') { return }
-    foreach ($c in (Join-Path $Base 'cookies.txt'), (Join-Path $PSScriptRoot 'cookies.txt')) {
+    $dirs = @($Base); if ($PSScriptRoot) { $dirs += $PSScriptRoot }
+    foreach ($c in @($dirs | ForEach-Object { Join-Path $_ 'cookies.txt' })) {
         if (-not (Test-Path -LiteralPath $c)) { continue }
         try {
             $b = [System.IO.File]::ReadAllBytes($c)
