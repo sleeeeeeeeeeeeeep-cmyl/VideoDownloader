@@ -1,0 +1,41 @@
+name: Something doesn't work
+description: Report a bug in Video Downloader or the YouTube button
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Never paste your cookies.txt or anything from it** - it works like the password to your Google account.
+  - type: input
+    id: version
+    attributes:
+      label: Video Downloader version
+      description: At the bottom of the guide (Help button in the app), or in Windows Settings > Apps > Installed apps.
+      placeholder: "4.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows version
+      options: [Windows 11, Windows 10, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser (if it's about the Download button)
+      options: [Not about the button, Chrome, Edge, Firefox, Brave, Opera / Opera GX, Other]
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead? A link to the video helps (if it's public).
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message
+      description: Double-click the red line in the Video Downloader window and copy the message here. You can also attach error.log from %LOCALAPPDATA%\VideoDownloader - read it first and remove anything private.
+      render: text
