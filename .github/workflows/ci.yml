@@ -1,0 +1,36 @@
+name: Checks and release files
+
+on:
+  push:
+  pull_request:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the checks with Windows PowerShell 5.1 (what most people have)
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests.ps1
+
+  release-files:
+    if: github.event_name == 'release'
+    needs: checks
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the ZIPs and SHA-256 checksums
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\Build-Release.ps1 -Tag "${{ github.event.release.tag_name }}"
+      - name: Attach them to the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" (Get-ChildItem dist\*.zip, dist\SHA256SUMS.txt).FullName --clobber
