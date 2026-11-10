@@ -46,7 +46,7 @@ jobs:
         run: |
           python3 -m pip install --user --break-system-packages -q ruff vermin
           python3 -m ruff check .
-          python3 -m vermin -t=3.8- --no-tips --violations video-downloader.py tests_linux.py build-linux-release.py
+          python3 -c "import sys, vermin; sys.exit(vermin.main())" -t=3.8- --no-tips --violations video-downloader.py tests_linux.py build-linux-release.py
           shellcheck -s sh install.sh
       - if: matrix.python == 'system'
         name: Tests (with the window)
