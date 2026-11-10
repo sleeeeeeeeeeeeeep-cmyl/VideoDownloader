@@ -20,7 +20,7 @@
 param([string]$Uri, [switch]$App, [switch]$AutoOpened, [switch]$RunQueue, [switch]$Settings, [switch]$Menu, [switch]$UpdateNow, [switch]$NetCheck,
       [switch]$History, [string]$HistoryTask, [string]$Path, [switch]$CheckApp, [switch]$UpdateApp, [switch]$ConnectionCheck)
 
-$AppVersion = '4.5'
+$AppVersion = '4.6'
 $UpdateRepo = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'   # GitHub project: new versions are announced here
 
 # ============================== DEFAULT SETTINGS ==============================

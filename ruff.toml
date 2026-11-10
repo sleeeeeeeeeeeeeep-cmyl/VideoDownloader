@@ -1,0 +1,17 @@
+# Lint settings for the Linux app (video-downloader.py) and its tests
+target-version = "py38"
+line-length = 160
+
+[lint]
+select = ["E", "F", "W", "B", "S", "BLE", "C4", "PIE", "RET", "SIM", "PL"]
+ignore = [
+    "E501",                       # long lines are fine
+    "S603", "S607", "S404",       # it runs yt-dlp, ffmpeg and desktop tools on purpose (never through a shell)
+    "S310",                       # urllib only opens fixed https:// addresses
+    "S311",                       # random is for file names, not secrets
+    "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",   # size/complexity limits
+    "PLW0603", "PLC0415", "PLW2901", "SIM105", "SIM115", "RET505", "RET508",
+]
+
+[lint.per-file-ignores]
+"tests_linux.py" = ["S101", "S108", "PLC1901"]

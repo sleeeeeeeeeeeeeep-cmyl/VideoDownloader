@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.6
+
+- **New: Video Downloader for Linux.** The same downloads (all eight types, every setting), the same queue that waits
+  out dropped connections, pause and resume, failure explanations and the signed-in retry, in a window or from the
+  terminal (`video-downloader --type audio LINK`). The YouTube Download button works with it unchanged. Install with
+  `sh install.sh` from `VideoDownloader-linux-4.6.tar.gz`, or one line with curl; no sudo needed. Helper programs are
+  checked against their published SHA-256 checksums, and "Update now" works the same way as on Windows.
+- Releases now include the Linux download, and its checksum is in `SHA256SUMS.txt`.
+- GitHub now also checks the Linux app on every upload: ruff, vermin (Python 3.8 compatibility), shellcheck and 32
+  tests on Python 3.8 and the current Ubuntu Python, including opening the window on a virtual display.
+- Windows: version 4.6 so both apps match; the README has a Linux section and a Windows/Linux comparison.
+
 ## 4.5
 
 - **New Help menu** in the window: open the guide, check for updates now, check your connection (Wi-Fi, ping, speed

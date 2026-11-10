@@ -1,0 +1,6 @@
+# keep line endings right whichever computer the files pass through
+*.sh text eol=lf
+*.py text eol=lf
+README-linux.txt text eol=lf
+*.png binary
+*.ico binary

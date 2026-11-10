@@ -3,7 +3,8 @@
 [![Checks](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/actions/workflows/ci.yml/badge.svg)](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/sleeeeeeeeeeeeeep-cmyl/VideoDownloader)](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/releases/latest)
 
-A free Windows app that puts a **Download** button under YouTube videos and saves them to your PC or your phone.
+A free app for **Windows and Linux** that puts a **Download** button under YouTube videos and saves them to your
+computer or your phone.
 No ads, no account, no server: everything runs on your own computer, using the open-source
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) to do the downloading.
 
@@ -11,6 +12,7 @@ No ads, no account, no server: everything runs on your own computer, using the o
 
 - [What it does](#what-it-does)
 - [Install](#install)
+- [Linux](#linux)
 - [Add the Download button to YouTube](#add-the-download-button-to-youtube)
 - [Downloading](#downloading)
 - [Download types](#download-types)
@@ -40,14 +42,16 @@ No ads, no account, no server: everything runs on your own computer, using the o
 - **Pause and resume**: half-finished downloads continue where they stopped.
 - **Straight to your phone**: Phone downloads are made to play on every iPhone and Android, and can go into iCloud
   Drive, OneDrive or Google Drive so they appear on your phone.
-- **Your watch history, sorted by length**: read your recent history from YouTube or import your whole history from
-  Google Takeout, then sort, search and download from it.
+- **Your watch history, sorted by length** (Windows): read your recent history from YouTube or import your whole
+  history from Google Takeout, then sort, search and download from it.
 - **Keeps itself working**: YouTube changes often, so the parts that talk to it (yt-dlp and Deno) update themselves
   every week, and Video Downloader itself updates in one click.
 - **Private by design**: no tracking, your optional YouTube sign-in is encrypted, and nothing about you leaves your PC.
   See [Privacy and security](#privacy-and-security).
 
 ## Install
+
+This section is for Windows. On Linux, see [Linux](#linux).
 
 **You need** Windows 10 (version 1809 or newer) or Windows 11. No administrator rights are needed: everything is
 installed for your Windows account only.
@@ -73,6 +77,85 @@ installed for your Windows account only.
 
 **"winget was not found"?** Open the Microsoft Store, search for **App Installer**, install or update it, then run
 Setup again.
+
+## Linux
+
+The Linux version does the same downloading as the Windows one, with its own window, and the same YouTube Download
+button works with it. It runs on any current distribution (Ubuntu, Debian, Mint, Pop!_OS, Fedora, Arch, openSUSE,
+ChromeOS's Linux, and others) and installs for your account only, so it never asks for your password.
+
+**You need** Python 3.8 or newer (every current distribution has it) and, for the window, Tk.
+
+### Install on Linux
+
+Either download **`VideoDownloader-linux-x.y.tar.gz`** from the
+[latest release](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/releases/latest), extract it, open a
+terminal in the extracted folder and run:
+
+```sh
+sh install.sh
+```
+
+or do it all in one line (this downloads the newest Linux release and checks it against the release's SHA-256
+checksums before running anything from it):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/install.sh | sh
+```
+
+Setup:
+
+- installs [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [Deno](https://deno.com) into
+  `~/.local/lib/video-downloader/bin`, plus [FFmpeg](https://ffmpeg.org) if your system doesn't have it, each checked
+  against the checksum its makers publish;
+- adds **Video Downloader** to your applications menu and the `video-downloader` command to `~/.local/bin`;
+- registers `ytdl://` links, so the YouTube button can hand downloads to the app.
+
+If setup says Tk is missing, install it and you're done:
+
+| Distribution | Command |
+| --- | --- |
+| Ubuntu, Debian, Mint, Pop!_OS | `sudo apt install python3-tk` |
+| Fedora | `sudo dnf install python3-tkinter` |
+| Arch, Manjaro | `sudo pacman -S tk` |
+| openSUSE | `sudo zypper install python3-tk` |
+
+Then add the Download button exactly as on Windows: see
+[Add the Download button to YouTube](#add-the-download-button-to-youtube). The first time you click it, your browser
+asks whether to open **Video Downloader link**: allow it, and tick "always" so it doesn't ask again.
+
+### Using it on Linux
+
+The window works like the Windows one: paste links, pick a type, watch progress, pause and resume, remove downloads,
+double-click a finished one to show it in your file manager, or a failed one to see why it failed. **Settings** has the
+same tabs, and **Help** has the guide, "Check for updates now", "Check my connection" (DNS, secure connections, ping,
+Wi-Fi and a speed test), the data folder and this page.
+
+Or use the terminal:
+
+```sh
+video-downloader                                   # open the window
+video-downloader https://youtu.be/...              # download as Video
+video-downloader --type audio LINK [LINK...]       # also: phone, best, edit, playlist, shrink
+video-downloader --resume                          # continue paused or waiting downloads
+video-downloader --update-now                      # update yt-dlp and Deno
+video-downloader --connection-check                # write and open a connection report
+video-downloader --uninstall                       # remove it (asks about your settings and history)
+```
+
+In the terminal, **Ctrl+C pauses**: nothing is lost, and `--resume` (or Resume in the window) carries on.
+
+| | Windows | Linux |
+| --- | --- | --- |
+| Videos, phone, audio folders | `Downloads\Videos`, `\Phone`, `\Audio` | `~/Downloads/Videos`, `/Phone`, `/Audio` |
+| Settings, history, logs | `%LOCALAPPDATA%\VideoDownloader` | `~/.local/share/video-downloader` (only your account can open it) |
+| YouTube sign-in | Firefox, or an encrypted cookies.txt | Firefox, Chrome, Chromium, Brave, Edge, Opera or Vivaldi, or a cookies.txt readable only by you |
+| Watch history sorted by length | Yes | Not yet |
+| Notifications | Windows notifications | Your desktop's notifications (`notify-send`) |
+| Updates | yt-dlp and Deno weekly; the app in one click | The same |
+
+Every download type, setting and troubleshooting tip below applies to Linux too, apart from the Windows-specific
+paths and the watch history.
 
 ## Add the Download button to YouTube
 
@@ -510,6 +593,11 @@ and the helper programs yt-dlp, FFmpeg and Deno (in Settings > Apps; other progr
 | `extension-manifest.json`, `extension-icon.png` | The button as a browser extension |
 | `Tests.ps1` | Automatic checks (run by GitHub on Windows for every upload) |
 | `Build-Release.ps1` | Builds the release ZIPs and SHA-256 checksums |
+| `video-downloader.py` | The whole Linux app: window (Tk), background downloader, settings, updates, installer (Python 3.8+, standard library only) |
+| `install.sh` | Linux setup: runs `video-downloader.py --install`, or downloads and checks the newest release first |
+| `README-linux.txt`, `video-downloader.png` | The Linux download's quick guide and icon |
+| `tests_linux.py`, `ruff.toml` | The Linux checks (run by GitHub on Ubuntu for every upload) |
+| `build-linux-release.py` | Builds `VideoDownloader-linux-x.y.tar.gz` and adds it to the checksums |
 | `.github/` | The GitHub Actions workflow and the issue forms |
 
 ### Checks
@@ -527,14 +615,22 @@ and the helper programs yt-dlp, FFmpeg and Deno (in Settings > Apps; other progr
 
 Run them yourself with `powershell -ExecutionPolicy Bypass -File Tests.ps1`.
 
+`tests_linux.py` runs on Ubuntu with Python 3.8 (the oldest supported) and with the system Python, after `ruff`,
+`vermin` (nothing newer than Python 3.8 is used) and `shellcheck`. Without downloading anything (a stand-in for yt-dlp
+writes small files), it checks the `ytdl://` link checks, the options given to yt-dlp for every type and setting,
+failure detection and the signed-in retry, pausing and waiting for the internet, the Phone conversion to H.264/AAC,
+installing and uninstalling, refusing unsafe archives and wrong checksums in "Update now", and that the window opens.
+Run them with `python3 tests_linux.py` (use `xvfb-run -a python3 tests_linux.py` to include the window).
+
 ### Making a new version
 
-1. Change the version number in three places, which must match: `$AppVersion` in `VideoDownloader.ps1`, `@version` in
-   `VideoDownloader.user.js` and `"version"` in `extension-manifest.json`. Add a section to `CHANGELOG.md`.
+1. Change the version number in four places, which must match: `$AppVersion` in `VideoDownloader.ps1`,
+   `APP_VERSION` in `video-downloader.py`, `@version` in `VideoDownloader.user.js` and `"version"` in
+   `extension-manifest.json`. Add a section to `CHANGELOG.md`.
 2. Upload the changed files and wait for the green tick on the **Actions** tab. A red X means something is broken.
-3. Create a release whose tag is the version number (for example `4.6`). Don't attach anything: GitHub builds
-   `VideoDownloader-x.y.zip`, the extension ZIP and `SHA256SUMS.txt` and attaches them within a few minutes.
-   "Update now" in the app picks the new version up from there.
+3. Create a release whose tag is the version number (for example `4.7`). Don't attach anything: GitHub builds
+   `VideoDownloader-x.y.zip`, `VideoDownloader-linux-x.y.tar.gz`, the extension ZIP and `SHA256SUMS.txt` and
+   attaches them within a few minutes. "Update now" in both apps picks the new version up from there.
 
 ## Please use responsibly
 

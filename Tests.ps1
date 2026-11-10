@@ -39,7 +39,8 @@ foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Rel
         if ($n) { throw "$n non-ASCII bytes - replace curly quotes, dashes and emoji" }
     }
 }
-foreach ($f in 'Guide.html', 'VideoDownloader.user.js', 'VideoDownloader.ico', 'extension-manifest.json', 'extension-icon.png', 'README.md', 'LICENSE') {
+foreach ($f in 'Guide.html', 'VideoDownloader.user.js', 'VideoDownloader.ico', 'extension-manifest.json', 'extension-icon.png', 'README.md', 'LICENSE',
+           'video-downloader.py', 'install.sh', 'video-downloader.png', 'README-linux.txt', 'build-linux-release.py') {
     Check "$f is present" { Test-Path -LiteralPath (Join-Path $root $f) }
 }
 
@@ -54,6 +55,10 @@ Check 'the YouTube button script has the same version (Tampermonkey only updates
     Expect $Matches[1] $ver
 }
 Check 'the browser extension has the same version' { Expect ((Read-Text 'extension-manifest.json') | ConvertFrom-Json).version $ver }
+Check 'the Linux app has the same version' {
+    if ((Read-Text 'video-downloader.py') -notmatch "(?m)^APP_VERSION = '([0-9.]+)'") { throw 'no APP_VERSION line' }
+    Expect $Matches[1] $ver
+}
 Check 'CHANGELOG.md describes this version' { (Read-Text 'CHANGELOG.md') -match ('(?m)^## ' + [regex]::Escape($ver) + '\s*$') }
 
 # ---------------------------------------------------------------- the button script

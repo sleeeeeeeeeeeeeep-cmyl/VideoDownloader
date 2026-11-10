@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Video Downloader - YouTube button
 // @namespace    local.ytdl
-// @version      4.5
+// @version      4.6
 // @homepageURL  https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader
 // @supportURL   https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/issues
 // @updateURL    https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js
