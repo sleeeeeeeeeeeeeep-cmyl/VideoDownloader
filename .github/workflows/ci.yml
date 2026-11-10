@@ -1,4 +1,3 @@
----
 name: Checks and release files
 
 on:
@@ -12,6 +11,7 @@ permissions:
 
 jobs:
   checks:
+    name: Windows checks
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -19,19 +19,58 @@ jobs:
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\Tests.ps1
 
+  linux:
+    name: Linux checks (Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the oldest Python the app supports (the window test is skipped: no display)
+          - os: ubuntu-22.04
+            python: '3.8'
+          # what current Ubuntu ships, with the window opened on a virtual display
+          - os: ubuntu-latest
+            python: system
+    steps:
+      - uses: actions/checkout@v5
+      - if: matrix.python != 'system'
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - if: matrix.python == 'system'
+        name: Install Tk, FFmpeg and a virtual display
+        run: sudo apt-get update -q && sudo apt-get install -y -q python3-tk ffmpeg xvfb shellcheck
+      - if: matrix.python == 'system'
+        name: Lint (ruff, vermin, shellcheck)
+        run: |
+          python3 -m pip install --user --break-system-packages -q ruff vermin
+          python3 -m ruff check .
+          python3 -m vermin -t=3.8- --no-tips --violations video-downloader.py tests_linux.py build-linux-release.py
+          shellcheck -s sh install.sh
+      - if: matrix.python == 'system'
+        name: Tests (with the window)
+        run: xvfb-run -a python3 -W error tests_linux.py
+      - if: matrix.python != 'system'
+        name: Tests
+        run: python -W error tests_linux.py
+
   release-files:
     if: github.event_name == 'release'
-    needs: checks
+    needs: [checks, linux]
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - name: Build the ZIPs and SHA-256 checksums
+      - name: Build the Windows ZIPs and SHA-256 checksums
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\Build-Release.ps1 -Tag "${{ github.event.release.tag_name }}"
+      - name: Build the Linux download and add its checksum
+        shell: pwsh
+        run: python build-linux-release.py --tag "${{ github.event.release.tag_name }}"
       - name: Attach them to the release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" (Get-ChildItem dist\*.zip, dist\SHA256SUMS.txt).FullName --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" (Get-ChildItem dist\*.zip, dist\*.tar.gz, dist\SHA256SUMS.txt).FullName --clobber
