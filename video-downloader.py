@@ -24,8 +24,10 @@ import hashlib
 import json
 import os
 import platform
+import queue
 import random
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -36,11 +38,12 @@ import tarfile
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
 
-APP_VERSION = '4.6'
+APP_VERSION = '4.6.1'
 APP_NAME = 'Video Downloader'
 UPDATE_REPO = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'
 PROJECT_URL = 'https://github.com/' + UPDATE_REPO
@@ -88,7 +91,7 @@ class Paths:
         self.settings = os.path.join(self.data, 'settings.json')
         self.status = os.path.join(self.data, 'status.json')
         self.history = os.path.join(self.data, 'history.jsonl')
-        self.history_log = os.path.join(self.data, 'history.log')
+        self.history_log = os.path.join(self.data, 'history.log')      # (older versions; erased with the history)
         self.runner_log = os.path.join(self.data, 'runner.log')
         self.error_log = os.path.join(self.data, 'error.log')
         self.runner_lock = os.path.join(self.data, 'runner.lock')
@@ -110,9 +113,29 @@ class Paths:
             os.chmod(self.data, 0o700)
         except OSError:
             pass
+        mark = os.path.join(self.data, '.private-v1')
+        if not os.path.exists(mark):      # once: files made before everything was private
+            for dirpath, dirs, files in os.walk(self.data):
+                for n in dirs:
+                    _chmod_quiet(os.path.join(dirpath, n), 0o700)
+                for n in files:
+                    _chmod_quiet(os.path.join(dirpath, n), 0o600)
+            with open(mark, 'w', encoding='utf-8') as f:
+                f.write(APP_VERSION)
+
+
+def _chmod_quiet(path, mode):
+    try:
+        if not os.path.islink(path):
+            os.chmod(path, mode)
+    except OSError:
+        pass
 
 
 P = Paths()
+# Everything this app creates (settings, history, logs, half-done downloads, and the downloads themselves) is readable
+# by your account only. Other accounts on this computer can't open any of it.
+os.umask(0o077)
 
 
 # ============================================================ small helpers
@@ -182,14 +205,28 @@ def limit_file(path, max_bytes, keep_lines):
 
 def limit_private_data():
     limit_file(P.runner_log, 1024 * 1024, 3000)
-    limit_file(P.history_log, 2 * 1024 * 1024, 5000)
     limit_file(P.error_log, 256 * 1024, 500)
     try:
-        if os.path.getsize(P.history) > 2 * 1024 * 1024:
+        os.remove(P.history_log)          # older versions kept a second copy of the history here
+    except OSError:
+        pass
+    days = int(SETTINGS.get('KeepHistoryDays', 0) or 0)
+    cutoff = (datetime.datetime.now() - datetime.timedelta(days=days)).replace(microsecond=0).isoformat() if days > 0 else ''
+    try:
+        if cutoff or os.path.getsize(P.history) > 2 * 1024 * 1024:
             with HistoryLock():
                 with open(P.history, encoding='utf-8', errors='replace') as f:
                     lines = f.readlines()
-                write_lines(P.history, lines[-3000:])
+                keep = []
+                for line in lines[-3000:]:
+                    try:
+                        e = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(e, dict) and (not cutoff or str(e.get('time', '')) >= cutoff):
+                        keep.append(line if line.endswith('\n') else line + '\n')
+                if len(keep) != len(lines):
+                    write_lines(P.history, keep)
     except OSError:
         pass
     try:
@@ -197,6 +234,19 @@ def limit_private_data():
             os.remove(P.report)
     except OSError:
         pass
+
+
+def erase_history():
+    """Help > Erase my download history: the list of downloads, the logs, the reports and the playlist memory."""
+    gone = 0
+    with HistoryLock():
+        for path in (P.history, P.history_log, P.runner_log, P.error_log, P.report, P.archive, P.status):
+            try:
+                os.remove(path)
+                gone += 1
+            except OSError:
+                pass
+    return gone
 
 
 def format_clock(seconds):
@@ -341,7 +391,7 @@ def default_settings():
         'AudioFolder': os.path.join(dl, 'Audio'), 'AudioFormat': 'm4a', 'AudioQuality': 'best', 'AudioCover': True,
         'SubtitleMode': 'off', 'SubtitleLangs': 'en', 'AutoSubtitles': False, 'SponsorBlock': 'off',
         'ClipAccurate': True, 'ShrinkQuality': 'balanced', 'PlaylistFolders': True,
-        'Fragments': 4, 'SpeedLimit': 0, 'UseCookies': 'auto', 'CookieSource': 'firefox',
+        'Fragments': 4, 'SpeedLimit': 0, 'UseCookies': 'auto', 'CookieSource': 'firefox', 'KeepHistoryDays': 0,
     }
 
 
@@ -354,6 +404,7 @@ SETTING_DEFS = [
     ('General', 'ShowInFolder', 'Show the file in the file manager when done', 'bool', None),
     ('General', 'AutoUpdateDays', 'Auto-update yt-dlp', 'choice', [(7, 'Weekly'), (30, 'Monthly'), (0, 'Never')]),
     ('General', 'CheckAppUpdates', 'Tell me about new versions', 'bool', None),
+    ('General', 'KeepHistoryDays', 'Forget finished downloads after', 'choice', [(0, 'Never (keep the list)'), (90, '90 days'), (30, '30 days'), (7, '7 days'), (1, '1 day')]),
     ('Video', 'VideoFolder', 'Save videos to', 'folder', None),
     ('Video', 'MaxHeight', 'Video / clip / playlist quality', 'choice', [(480, '480p'), (720, '720p'), (1080, '1080p'), (1440, '1440p'), (2160, '4K (2160p)')]),
     ('Video', 'BestHeight', 'Best quality limit', 'choice', [(0, 'No limit (up to 8K)'), (2160, '4K (2160p)'), (1440, '1440p')]),
@@ -384,18 +435,34 @@ SETTING_DEFS = [
 ]
 
 
+def clean_folder(value):
+    """A folder setting: a full path (~ allowed), or None if it isn't one."""
+    if not isinstance(value, str):
+        return None
+    v = os.path.expanduser(value.strip())
+    if not v or not os.path.isabs(v) or any(ord(ch) < 32 for ch in v):
+        return None
+    return os.path.normpath(v)
+
+
 def load_settings():
     s = default_settings()
     saved = read_json(P.settings, {}) or {}
+    if not isinstance(saved, dict):
+        saved = {}
     defs = {d[1]: d for d in SETTING_DEFS}
     for k, v in saved.items():
-        if k not in s:
-            continue
         d = defs.get(k)
-        if d and d[3] == 'choice' and v not in [c[0] for c in d[4]]:
+        if k not in s or not d:
+            continue
+        if d[3] == 'choice' and v not in [c[0] for c in d[4]]:
             continue           # an unknown value (hand-edited, or from another version): keep the default
-        if d and d[3] == 'bool':
+        if d[3] == 'bool':
             v = bool(v)
+        if d[3] == 'folder':
+            v = clean_folder(v)
+            if not v:
+                continue
         s[k] = v
     return s
 
@@ -513,6 +580,12 @@ def finish_job(job):
         os.remove(os.path.join(P.running, job['_file']))
     except OSError:
         pass
+    shutil.rmtree(job_temp(job), ignore_errors=True)     # half-done pieces of this download
+
+
+def job_temp(job):
+    """Each download keeps its half-done pieces in its own folder, so removing a download removes them too."""
+    return os.path.join(P.temp, 'job-' + os.path.splitext(job.get('_file') or 'job')[0])
 
 
 def restore_interrupted():
@@ -647,10 +720,10 @@ def job_args(job, list_file, dir_override=None):
     out_dir = dir_override or folder_for(mode)
     codec, fps, box, height = s['VideoCodec'], int(s['MaxFps']), s['Container'], int(s['MaxHeight'])
     out = name_template()
-    a = ['--no-playlist', '--trim-filenames', '150', '--no-mtime',
+    a = ['--no-playlist', '--windows-filenames', '--trim-filenames', '150', '--no-mtime',
          '--retries', '30', '--fragment-retries', '30', '--retry-sleep', 'http:exp=1:30', '--retry-sleep', 'fragment:exp=1:30',
          '--socket-timeout', '30', '-N', str(int(s['Fragments'])), '--embed-metadata',
-         '-P', out_dir, '-P', 'temp:' + P.temp, '--print-to-file', 'after_move:filepath', list_file]
+         '-P', out_dir, '-P', 'temp:' + job_temp(job), '--print-to-file', 'after_move:filepath', list_file]
     if float(s['SpeedLimit']) > 0:
         a += ['-r', '{}M'.format(s['SpeedLimit'])]
     if TOOLS.ffmpeg:
@@ -669,7 +742,8 @@ def job_args(job, list_file, dir_override=None):
               '-S', video_sort(h, 'h264', pf), '--merge-output-format', 'mp4']
     elif mode == 'audio':
         fmt = s['AudioFormat']
-        a += ['-f', 'ba[ext=m4a]/ba' if fmt == 'm4a' else 'ba', '-x', '--audio-format', fmt]
+        # (/b: sites that only offer video with sound in one file still give their audio)
+        a += ['-f', 'ba[ext=m4a]/ba/b' if fmt == 'm4a' else 'ba/b', '-x', '--audio-format', fmt]
         if fmt in ('mp3', 'opus', 'm4a'):
             a += ['--audio-quality', '0' if s['AudioQuality'] == 'best' else '{}K'.format(s['AudioQuality'])]
         if s['AudioCover'] and fmt != 'wav':
@@ -796,7 +870,7 @@ def start_runner():
     """Start the background downloader unless it's already running or paused."""
     if os.path.exists(P.paused) or runner_active():
         return
-    subprocess.Popen([sys.executable, os.path.abspath(__file__), '--run-queue'], stdin=subprocess.DEVNULL,
+    subprocess.Popen([sys.executable, '-I', os.path.abspath(__file__), '--run-queue'], stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
@@ -810,8 +884,11 @@ def run_ytdlp(job, extra, dir_override=None):
         '--progress-template', 'postprocess:VDLPP|%(progress.postprocessor)s|%(info.title)s',
     ] + job_args(job, list_file, dir_override) + extra + ['--', job['Url']]
     env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUTF8='1')
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                            env=env, start_new_session=True, text=True, encoding='utf-8', errors='replace', bufsize=1)
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                env=env, start_new_session=True, text=True, encoding='utf-8', errors='replace', bufsize=1)
+    except OSError as e:
+        return 127, 'ERROR: yt-dlp could not be started: {}'.format(e), [], False
     write_status(force=True, childPid=proc.pid)
     errors = []
 
@@ -914,6 +991,8 @@ def convert_for_phone(src):
                         '-map', '0:s?'] + vargs + aargs + ['-c:s', 'mov_text', '-movflags', '+faststart', tmp], capture_output=True, check=False)
     if r.returncode == 0 and os.path.exists(tmp):
         final = os.path.splitext(src)[0] + '.mp4'
+        if final != src:
+            final = unique_path(final)
         os.replace(tmp, final)
         if final != src:
             os.remove(src)
@@ -926,7 +1005,18 @@ def convert_for_phone(src):
     return src
 
 
+def keep_original(src):
+    """Shrink couldn't run: put the downloaded file in Videos as it is."""
+    os.makedirs(SETTINGS['VideoFolder'], exist_ok=True)
+    keep = unique_path(os.path.join(SETTINGS['VideoFolder'], os.path.basename(src)))
+    shutil.move(src, keep)
+    return keep
+
+
 def shrink(src):
+    if not TOOLS.ffmpeg:
+        say('FFmpeg is missing, so the video was saved without shrinking it.')
+        return keep_original(src)
     crf = {'smaller': (36, 28), 'balanced': (30, 24), 'better': (25, 21)}.get(SETTINGS['ShrinkQuality'], (30, 24))
     enc = ['-c:v', 'libx265', '-crf', str(crf[1]), '-preset', 'medium', '-tag:v', 'hvc1']
     try:
@@ -946,9 +1036,11 @@ def shrink(src):
         os.remove(src)
         return dest
     say('Shrink failed - keeping the original instead.')
-    keep = unique_path(os.path.join(SETTINGS['VideoFolder'], os.path.basename(src)))
-    shutil.move(src, keep)
-    return keep
+    try:
+        os.remove(dest)
+    except OSError:
+        pass
+    return keep_original(src)
 
 
 def add_history(entry):
@@ -956,16 +1048,6 @@ def add_history(entry):
     try:
         with HistoryLock(), open(P.history, 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry) + '\n')
-    except OSError:
-        pass
-    line = '{:%Y-%m-%d %H:%M}  {}  {:<8} {}'.format(datetime.datetime.now(), 'OK  ' if entry.get('ok') else 'FAIL', entry.get('mode', ''), entry.get('url', ''))
-    if entry.get('ok'):
-        line += '  ->  ' + ', '.join(entry.get('files', []))
-    else:
-        line += '  (' + (entry.get('error') or '').replace('\n', ' ')[:300] + ')'
-    try:
-        with open(P.history_log, 'a', encoding='utf-8') as f:
-            f.write(line + '\n')
     except OSError:
         pass
 
@@ -1019,10 +1101,12 @@ def process_job(job):
         say('Paused.')
         return 'paused'
     title = STATUS.get('title', '')
-    if code == 0 and (files or mode == 'playlist'):
+    if code == 0 or (mode == 'playlist' and files):     # (a playlist with a few unavailable videos still counts)
+        if not files:
+            say('Already downloaded - nothing new.')
         if mode == 'phone':
             files = [convert_for_phone(f) for f in files]
-        elif mode == 'shrink' and files and TOOLS.ffmpeg:
+        elif mode == 'shrink':
             files = [shrink(f) for f in files]
         if work:
             shutil.rmtree(work, ignore_errors=True)
@@ -1049,7 +1133,7 @@ def clear_old_temp():
     for n in os.listdir(P.temp):
         p = os.path.join(P.temp, n)
         try:
-            if os.path.getmtime(p) < cutoff or n.startswith('done-'):
+            if os.path.getmtime(p) < cutoff or n.startswith(('done-', 'update-')):
                 if os.path.isdir(p):
                     shutil.rmtree(p, ignore_errors=True)
                 else:
@@ -1086,6 +1170,11 @@ def run_queue():
                 os.remove(flag)
             except OSError:
                 pass
+        if not STATE.interactive:
+            try:
+                os.remove(P.runner_log)          # the log only describes the latest run (it names what you downloaded)
+            except OSError:
+                pass
         restore_interrupted()
         clear_old_temp()
         limit_private_data()
@@ -1101,7 +1190,14 @@ def run_queue():
             if not job:
                 break
             write_status(force=True, queued=len(list_jobs(P.queue)))
-            result = process_job(job)
+            try:
+                result = process_job(job)
+            except (OSError, ValueError, KeyError, RuntimeError) as e:
+                log(P.error_log, 'download failed unexpectedly: {}: {}'.format(type(e).__name__, e))
+                add_history({'mode': job.get('Mode', ''), 'url': job.get('Url', ''), 'ok': False, 'title': '',
+                             'error': '{}: {}'.format(type(e).__name__, e), 'hint': failure_hint('other', False), 'kind': 'other'})
+                finish_job(job)
+                result = 'fail'
             if result == 'ok':
                 done += 1
                 net_fails = 0
@@ -1158,7 +1254,7 @@ def terminal_download(urls, mode):
 # ============================================================ GitHub: new versions
 def github_json(url):
     req = urllib.request.Request(url, headers={'User-Agent': 'VideoDownloader', 'Accept': 'application/vnd.github+json'})
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with _OPENER.open(req, timeout=20) as r:
         return json.load(r)
 
 
@@ -1196,9 +1292,23 @@ def app_update_due():
         return True
 
 
+class _HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only to another https:// address (never a plain-http one that could be tampered with)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: PLR0917 - urllib's own signature
+        if not newurl.lower().startswith('https://'):
+            raise urllib.error.HTTPError(newurl, code, 'refused a redirect away from https', headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_HttpsOnlyRedirects())
+
+
 def download(url, dest, progress=None):
+    if not url.lower().startswith('https://'):
+        raise ValueError('only https:// downloads are allowed: ' + url)
     req = urllib.request.Request(url, headers={'User-Agent': 'VideoDownloader'})
-    with urllib.request.urlopen(req, timeout=60) as r, open(dest, 'wb') as f:
+    with _OPENER.open(req, timeout=60) as r, open(dest, 'wb') as f:
         total = int(r.headers.get('Content-Length') or 0)
         got = 0
         while True:
@@ -1271,7 +1381,7 @@ def install_app_update():
                 break
         if not found:
             raise RuntimeError('The download has no video-downloader.py.')
-        rc = subprocess.run([sys.executable, found, '--install', '--quiet'], check=False).returncode
+        rc = subprocess.run([sys.executable, '-I', found, '--install', '--quiet'], check=False).returncode
         if rc != 0:
             raise RuntimeError('The installer stopped with code {}.'.format(rc))
         return None
@@ -1299,8 +1409,12 @@ def connection_check():
         m = re.search(r'default via (\S+)', route)
         gw = m.group(1) if m else ''
     if shutil.which('nmcli'):
-        out.append('Wi-Fi (in use is marked *):')
-        out.append(cmd(['nmcli', '-f', 'IN-USE,SSID,CHAN,FREQ,RATE,SIGNAL,SECURITY', 'dev', 'wifi', 'list', '--rescan', 'no']))
+        wifi = cmd(['nmcli', '-t', '-f', 'IN-USE,CHAN,FREQ,RATE,SIGNAL,SECURITY', 'dev', 'wifi', 'list', '--rescan', 'no']).splitlines()
+        mine = [ln[2:] for ln in wifi if ln.startswith('*:')]
+        chans = [ln.split(':')[1] for ln in wifi if ln.count(':') >= 2]
+        out.append('Wi-Fi in use (channel:frequency:rate:signal:security): ' + (', '.join(mine) or 'none'))
+        out.append('Nearby access points per channel (names left out): ' +
+                   ', '.join('{} on ch {}'.format(chans.count(c), c) for c in sorted(set(chans), key=lambda x: int(x) if x.isdigit() else 0)))
     out.append('')
     out.append('== Name lookups (DNS)')
     for host in ('www.youtube.com', 'redirector.googlevideo.com', 'github.com'):
@@ -1383,59 +1497,89 @@ def install_tools():
     arch = _arch()
     os.makedirs(P.bin, exist_ok=True)
     work = tempfile.mkdtemp(prefix='vd-install-')
-    try:
-        # yt-dlp: its own self-contained build, so it can update itself whatever Python the system has
-        if is_own(find_tool('yt-dlp')):
-            print('    OK  yt-dlp is already installed')
-        else:
-            name = {'x64': 'yt-dlp_linux', 'arm64': 'yt-dlp_linux_aarch64'}.get(arch)
-            if not name:
-                print('    !!  No ready-made yt-dlp for this processor ({}); install it with: python3 -m pip install --user yt-dlp'.format(arch))
-            else:
-                base = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/'
-                tmp = os.path.join(work, name)
-                _fetch_verified(base + name, tmp, base + 'SHA2-256SUMS', name, 'yt-dlp')
-                shutil.move(tmp, os.path.join(P.bin, 'yt-dlp'))
-                os.chmod(os.path.join(P.bin, 'yt-dlp'), 0o700)
-        # Deno: YouTube's player challenges need a JavaScript runtime
-        if find_tool('deno'):
-            print('    OK  Deno is already installed')
-        else:
-            name = {'x64': 'deno-x86_64-unknown-linux-gnu.zip', 'arm64': 'deno-aarch64-unknown-linux-gnu.zip'}.get(arch)
-            if name:
-                base = 'https://github.com/denoland/deno/releases/latest/download/'
-                tmp = os.path.join(work, name)
-                _fetch_verified(base + name, tmp, base + name + '.sha256sum', name, 'Deno')
-                with zipfile.ZipFile(tmp) as z, z.open('deno') as src, open(os.path.join(P.bin, 'deno'), 'wb') as dst:
+    for step in (_install_ytdlp, _install_deno, _install_ffmpeg):
+        try:
+            step(arch, work)
+        except (OSError, RuntimeError, ValueError, zipfile.BadZipFile, tarfile.TarError, KeyError) as e:
+            print('\n    !!  {}'.format(e))
+            print('        Setup carries on; run it again later (sh install.sh) to retry this part.')
+    shutil.rmtree(work, ignore_errors=True)
+
+
+def _put_tool(src_file, name):
+    """Move a checked helper program into place in one step (a half-copied program is never left behind)."""
+    dest = os.path.join(P.bin, name)
+    os.chmod(src_file, 0o700)
+    os.replace(src_file, dest)
+
+
+def _install_ytdlp(arch, work):
+    # its own self-contained build, so it can update itself whatever Python the system has
+    if is_own(find_tool('yt-dlp')):
+        print('    OK  yt-dlp is already installed')
+        return
+    name = {'x64': 'yt-dlp_linux', 'arm64': 'yt-dlp_linux_aarch64'}.get(arch)
+    if not name:
+        print('    !!  No ready-made yt-dlp for this processor ({}); install it with: python3 -m pip install --user yt-dlp'.format(arch))
+        return
+    base = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/'
+    tmp = os.path.join(work, name)
+    _fetch_verified(base + name, tmp, base + 'SHA2-256SUMS', name, 'yt-dlp')
+    staged = os.path.join(P.bin, '.yt-dlp.new')
+    shutil.move(tmp, staged)
+    _put_tool(staged, 'yt-dlp')
+
+
+def _install_deno(arch, work):
+    # YouTube's player challenges need a JavaScript runtime
+    if find_tool('deno'):
+        print('    OK  Deno is already installed')
+        return
+    name = {'x64': 'deno-x86_64-unknown-linux-gnu.zip', 'arm64': 'deno-aarch64-unknown-linux-gnu.zip'}.get(arch)
+    if not name:
+        print('    !!  No ready-made Deno for this processor ({}); see https://deno.com'.format(arch))
+        return
+    base = 'https://github.com/denoland/deno/releases/latest/download/'
+    tmp = os.path.join(work, name)
+    _fetch_verified(base + name, tmp, base + name + '.sha256sum', name, 'Deno')
+    staged = os.path.join(P.bin, '.deno.new')
+    with zipfile.ZipFile(tmp) as z, z.open('deno') as src, open(staged, 'wb') as dst:
+        shutil.copyfileobj(src, dst)
+    _put_tool(staged, 'deno')
+
+
+def _install_ffmpeg(arch, work):
+    # the system's copy if there is one (it's usually installed); otherwise a static build
+    if find_tool('ffmpeg') and find_tool('ffprobe'):
+        print('    OK  FFmpeg is already installed')
+        return
+    name = {'x64': 'ffmpeg-master-latest-linux64-gpl.tar.xz', 'arm64': 'ffmpeg-master-latest-linuxarm64-gpl.tar.xz'}.get(arch)
+    if not name:
+        print('    !!  Install FFmpeg with your package manager (for example: sudo apt install ffmpeg)')
+        return
+    base = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/'
+    tmp = os.path.join(work, name)
+    _fetch_verified(base + name, tmp, base + 'checksums.sha256', name, 'FFmpeg', size_note=' (about 100 MB)')
+    with tarfile.open(tmp) as t:
+        for member in t.getmembers():
+            tool = os.path.basename(member.name)
+            if member.isfile() and tool in ('ffmpeg', 'ffprobe') and '/bin/' in member.name:
+                staged = os.path.join(P.bin, '.' + tool + '.new')
+                with t.extractfile(member) as src, open(staged, 'wb') as dst:
                     shutil.copyfileobj(src, dst)
-                os.chmod(os.path.join(P.bin, 'deno'), 0o700)
-            else:
-                print('    !!  No ready-made Deno for this processor ({}); see https://deno.com'.format(arch))
-        # FFmpeg: use the system's if there is one (it's usually installed); otherwise a static build
-        if find_tool('ffmpeg') and find_tool('ffprobe'):
-            print('    OK  FFmpeg is already installed')
-        else:
-            name = {'x64': 'ffmpeg-master-latest-linux64-gpl.tar.xz', 'arm64': 'ffmpeg-master-latest-linuxarm64-gpl.tar.xz'}.get(arch)
-            if name:
-                base = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/'
-                tmp = os.path.join(work, name)
-                _fetch_verified(base + name, tmp, base + 'checksums.sha256', name, 'FFmpeg', size_note=' (about 100 MB)')
-                with tarfile.open(tmp) as t:
-                    for member in t.getmembers():
-                        if member.isfile() and os.path.basename(member.name) in ('ffmpeg', 'ffprobe') and '/bin/' in member.name:
-                            with t.extractfile(member) as src, open(os.path.join(P.bin, os.path.basename(member.name)), 'wb') as dst:
-                                shutil.copyfileobj(src, dst)
-                            os.chmod(os.path.join(P.bin, os.path.basename(member.name)), 0o700)
-            else:
-                print('    !!  Install FFmpeg with your package manager (for example: sudo apt install ffmpeg)')
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+                _put_tool(staged, tool)
+
+
+def _desktop_quote(path):
+    """A path as one quoted Exec= argument of a .desktop file (the format has two escaping layers)."""
+    arg = re.sub(r'(["`$\\])', r'\\\1', path)      # quoting rule: \ before " ` $ and \
+    return '"' + arg.replace('\\', '\\\\').replace('%', '%%') + '"'     # then the string rule doubles each \
 
 
 def _desktop_entry(name, comment, exec_args, extra=''):
     exe = LAUNCHER
-    return ('[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec="{}" {}\nIcon={}\nTerminal=false\n{}'
-            .format(name, comment, exe, exec_args, os.path.join(P.app_home, 'video-downloader.png'), extra))
+    return ('[Desktop Entry]\nType=Application\nName={}\nComment={}\nExec={} {}\nIcon={}\nTerminal=false\n{}'
+            .format(name, comment, _desktop_quote(exe), exec_args, os.path.join(P.app_home, 'video-downloader.png'), extra))
 
 
 def tk_missing_hint():
@@ -1464,7 +1608,7 @@ def install(quiet=False):
     os.chmod(os.path.join(P.app_home, 'video-downloader.py'), 0o700)
     os.makedirs(os.path.dirname(LAUNCHER), exist_ok=True)
     with open(LAUNCHER, 'w', encoding='utf-8') as f:
-        f.write('#!/bin/sh\nexec "{}" "{}" "$@"\n'.format(sys.executable, os.path.join(P.app_home, 'video-downloader.py')))
+        f.write('#!/bin/sh\nexec {} -I {} "$@"\n'.format(shlex.quote(sys.executable), shlex.quote(os.path.join(P.app_home, 'video-downloader.py'))))
     os.chmod(LAUNCHER, 0o700)
     print('    OK  Installed to ' + P.app_home)
     print('\n  3/4  Menu entry and the browser button')
@@ -1495,7 +1639,7 @@ def install(quiet=False):
         if sys.stdout.isatty():
             open_path(README_LINUX_URL)
     else:
-        subprocess.Popen([sys.executable, os.path.join(P.app_home, 'video-downloader.py'), '--app'], stdin=subprocess.DEVNULL,
+        subprocess.Popen([sys.executable, '-I', os.path.join(P.app_home, 'video-downloader.py'), '--app'], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     return 0
 
@@ -1543,7 +1687,11 @@ def run_window(auto_opened=False, open_settings=False):
         return 1
     P.ensure()
     lock = FileLock(P.window_lock)
-    if not lock.acquire():
+    for _ in range(10):               # a window that is just closing (for example during an update) gets 3 seconds
+        if lock.acquire():
+            break
+        time.sleep(0.3)
+    else:
         return 0          # already open: it shows new downloads by itself
     init_tools()
     root = tk.Tk(className='video-downloader')
@@ -1558,7 +1706,8 @@ def run_window(auto_opened=False, open_settings=False):
     if 'clam' in style.theme_names():
         style.theme_use('clam')
     style.configure('Big.TButton', padding=(14, 6))
-    ui = {'touched': False, 'closing_at': None, 'seen_jobs': set(), 'rows': {}}
+    ui = {'touched': False, 'closing_at': None, 'rows': {}, 'kicked': 0.0}
+    calls = queue.Queue()     # work finished in the background hands its screen update to the window this way
 
     def touch(_e=None):
         ui['touched'] = True
@@ -1693,10 +1842,11 @@ def run_window(auto_opened=False, open_settings=False):
                 if messagebox.askyesno(APP_NAME, 'Stop and remove the download that is running now?', parent=root):
                     open(P.cancel, 'w').close()
             elif kind == 'done' and iid in ui['rows']:
-                hide_history({history_key(ui['rows'][iid])})
+                forget_history({history_key(ui['rows'][iid])})
         refresh()
 
-    def hide_history(keys):
+    def forget_history(keys):
+        """Removes finished downloads from the list - really deleted from the history file, not just hidden."""
         try:
             with HistoryLock():
                 with open(P.history, encoding='utf-8') as f:
@@ -1705,11 +1855,10 @@ def run_window(auto_opened=False, open_settings=False):
                 for line in lines:
                     try:
                         e = json.loads(line)
-                        if isinstance(e, dict) and history_key(e) in keys:
-                            e['hidden'] = True
-                        out.append(json.dumps(e) + '\n')
                     except ValueError:
-                        pass
+                        continue
+                    if isinstance(e, dict) and history_key(e) not in keys and not e.get('hidden'):
+                        out.append(json.dumps(e) + '\n')
                 write_lines(P.history, out)
         except OSError:
             pass
@@ -1717,7 +1866,13 @@ def run_window(auto_opened=False, open_settings=False):
 
     def clear_finished():
         touch()
-        hide_history({history_key(e) for e in history_entries()})
+        forget_history({history_key(e) for e in history_entries()})
+        if not runner_active():
+            try:
+                os.remove(P.runner_log)     # it names the downloads too
+            except OSError:
+                pass
+        set_status('Finished downloads cleared from the list (your files are untouched).')
 
     remove_btn.configure(command=remove_selected)
     clear_btn.configure(command=clear_finished)
@@ -1747,10 +1902,10 @@ def run_window(auto_opened=False, open_settings=False):
         def work():
             try:
                 fn()
-                root.after(0, lambda: set_status(done_msg))
+                calls.put(lambda: set_status(done_msg))
             except Exception as e:  # noqa: BLE001 - shown to the person instead of crashing the window
                 msg = str(e)
-                root.after(0, lambda: set_status('Failed: ' + msg, '#c01c28'))
+                calls.put(lambda: set_status('Failed: ' + msg, '#c01c28'))
         threading.Thread(target=work, daemon=True).start()
 
     def help_update_tools():
@@ -1764,12 +1919,26 @@ def run_window(auto_opened=False, open_settings=False):
         set_status('Checking your connection (about a minute, includes a 25 MB speed test) - the report opens by itself.')
         run_bg(lambda: open_path(connection_check()), 'Connection report opened (it is also in the data folder).')
 
+    def erase_all():
+        touch()
+        if runner_active():
+            messagebox.showinfo(APP_NAME, 'A download is running. Pause it (or let it finish) first.', parent=root)
+            return
+        if not messagebox.askyesno(APP_NAME, 'Erase your download history?\n\nThis deletes the list of finished downloads, the logs, '
+                                   'connection reports and the list of playlist videos already downloaded.\n\nYour downloaded files, '
+                                   'settings and waiting downloads are kept.', parent=root):
+            return
+        erase_history()
+        set_status('Your download history and logs were erased.')
+        refresh()
+
     help_menu = tk.Menu(root, tearoff=False)
     help_menu.add_command(label='Open the guide (README)', command=lambda: open_path(README_LINUX_URL))
     help_menu.add_command(label='Install the YouTube Download button', command=lambda: open_path(USERSCRIPT_URL))
     help_menu.add_command(label='Check for updates now (yt-dlp and Deno)', command=help_update_tools)
     help_menu.add_command(label='Check my connection (makes a report)', command=help_connection)
     help_menu.add_separator()
+    help_menu.add_command(label='Erase my download history...', command=erase_all)
     help_menu.add_command(label='Open the data folder (settings, logs)', command=lambda: open_path(P.data))
     help_menu.add_command(label='Project page, new versions, report a problem', command=lambda: open_path(PROJECT_URL))
     help_btn.configure(command=lambda: help_menu.tk_popup(help_btn.winfo_rootx(), help_btn.winfo_rooty() + help_btn.winfo_height()))
@@ -1810,13 +1979,17 @@ def run_window(auto_opened=False, open_settings=False):
             vars_[key] = (v, kind, choices)
 
         def save():
+            for key, (v, kind, _choices) in vars_.items():
+                if kind == 'folder' and v.get().strip() and not clean_folder(v.get()):
+                    messagebox.showwarning(APP_NAME, 'Folders need a full path, for example {}'.format(default_settings()[key]), parent=win)
+                    return
             for key, (v, kind, choices) in vars_.items():
                 if kind == 'bool':
                     SETTINGS[key] = bool(v.get())
                 elif kind == 'choice':
                     SETTINGS[key] = next(val for val, n in choices if n == v.get())
                 else:
-                    SETTINGS[key] = v.get().strip() or default_settings()[key]
+                    SETTINGS[key] = clean_folder(v.get()) or default_settings()[key]
             save_settings(SETTINGS)
             win.destroy()
             set_status('Settings saved - they apply to the next download.')
@@ -1863,17 +2036,17 @@ def run_window(auto_opened=False, open_settings=False):
                 msg = install_app_update()
             except Exception as e:  # noqa: BLE001 - shown to the person
                 msg = "Video Downloader couldn't update itself:\n\n{}\n\nThe download page will open so you can update by hand.".format(e)
-                root.after(0, lambda: (messagebox.showwarning(APP_NAME, msg, parent=root), open_path(RELEASES_PAGE), update_link()))
+                calls.put(lambda: (messagebox.showwarning(APP_NAME, msg, parent=root), open_path(RELEASES_PAGE), update_link()))
                 return
             if msg:
-                root.after(0, lambda: (messagebox.showinfo(APP_NAME, msg, parent=root), update_link()))
+                calls.put(lambda: (messagebox.showinfo(APP_NAME, msg, parent=root), update_link()))
             else:
-                root.after(0, root.destroy)     # the installer opens the new version
+                ui['close'] = True     # the installer opens the new version
         threading.Thread(target=work, daemon=True).start()
 
     upd.configure(command=on_update_click)
     if app_update_due():
-        threading.Thread(target=lambda: (check_app_update(), root.after(0, update_link)), daemon=True).start()
+        threading.Thread(target=lambda: (check_app_update(), calls.put(update_link)), daemon=True).start()
     update_link()
 
     # ---------- clipboard: offer a copied link
@@ -1945,7 +2118,8 @@ def run_window(auto_opened=False, open_settings=False):
             now_line.configure(text='Paste a link above, or click Download under a YouTube video.')
         pause.configure(text='Resume' if (paused or (active and st.get('state') == 'waiting')) else 'Pause',
                         state='normal' if (active or paused or queued) else 'disabled')
-        if queued and not active and not paused:
+        if queued and not active and not paused and time.time() - ui['kicked'] > 10:
+            ui['kicked'] = time.time()      # (at most every 10 s, so a downloader that can't start isn't restarted non-stop)
             start_runner()
         # auto-close after downloads that came from the browser, once all went well
         if auto_opened and SETTINGS['CloseWhenDone'] and not ui['touched']:
@@ -1962,6 +2136,11 @@ def run_window(auto_opened=False, open_settings=False):
             set_status('Staying open.')
 
     def tick():
+        while not calls.empty():
+            try:
+                calls.get_nowait()()
+            except (queue.Empty, tk.TclError):
+                break
         try:
             refresh()
         except (OSError, ValueError, tk.TclError) as e:
@@ -1976,7 +2155,7 @@ def run_window(auto_opened=False, open_settings=False):
         root.after(200, open_settings_window)
     tick()
     root.protocol('WM_DELETE_WINDOW', root.destroy)
-    signal.signal(signal.SIGTERM, lambda *_: root.after(0, root.destroy))
+    signal.signal(signal.SIGTERM, lambda *_: ui.update(close=True))
     if os.environ.get('VIDEODOWNLOADER_SELFTEST'):
         root.after(int(os.environ['VIDEODOWNLOADER_SELFTEST']), root.destroy)
     root.mainloop()
@@ -1985,7 +2164,7 @@ def run_window(auto_opened=False, open_settings=False):
 
 
 def open_window_detached(*extra):
-    subprocess.Popen([sys.executable, os.path.abspath(__file__), '--app'] + list(extra), stdin=subprocess.DEVNULL,
+    subprocess.Popen([sys.executable, '-I', os.path.abspath(__file__), '--app'] + list(extra), stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 

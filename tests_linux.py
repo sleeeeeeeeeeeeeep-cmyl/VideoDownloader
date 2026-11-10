@@ -40,6 +40,10 @@ FAKE_YTDLP = textwrap.dedent(r'''
     assert '--ignore-config' in a and '--no-plugin-dirs' in a
     out_dir = next(v.split(':', 1)[1] if v.startswith('home:') else v for k, v in zip(a, a[1:]) if k == '-P' and not v.startswith('temp:'))
     listing = a[a.index('--print-to-file') + 2]
+    temp_dir = next(v[5:] for k, v in zip(a, a[1:]) if k == '-P' and v.startswith('temp:'))
+    os.makedirs(temp_dir, exist_ok=True)
+    with open(os.path.join(temp_dir, 'Fake title [abc].mp4.part'), 'w') as f:
+        f.write('half')
     signed_in = '--cookies-from-browser' in a or '--cookies' in a
     if 'private' in url:
         print('ERROR: [youtube] abc: Private video. Sign in if you have been granted access'); sys.exit(1)
@@ -215,6 +219,17 @@ class Arguments(unittest.TestCase):
         self.assertEqual(a[a.index('-r') + 1], '5M')
         self.assertEqual(a[-1], '%(upload_date>%Y-%m-%d|undated)s - %(title)s.%(ext)s')
 
+    def test_names_work_on_any_drive_and_each_download_has_its_own_temp_folder(self):
+        a = vd.job_args({'Mode': 'video', 'Url': 'https://youtu.be/abc', '_file': '20260101-5.job'}, '/tmp/l')
+        self.assertIn('--windows-filenames', a)
+        self.assertEqual(a[a.index('-P', a.index('-P') + 1) + 1], 'temp:' + os.path.join(vd.P.temp, 'job-20260101-5'))
+
+    def test_audio_works_on_sites_without_separate_audio(self):
+        a = self.args('audio')
+        self.assertEqual(a[a.index('-f') + 1], 'ba[ext=m4a]/ba/b')
+        a = self.args('audio', AudioFormat='mp3')
+        self.assertEqual(a[a.index('-f') + 1], 'ba/b')
+
     def test_every_setting_choice_is_valid(self):
         defaults = vd.default_settings()
         for _tab, key, _label, kind, choices in vd.SETTING_DEFS:
@@ -233,6 +248,42 @@ class Failures(unittest.TestCase):
         self.assertEqual(vd.failure_kind('Private video'), 'gone')
         self.assertEqual(vd.failure_kind('Join this channel to get access to members-only content'), 'members')
         self.assertEqual(vd.failure_kind('something new'), 'other')
+
+
+class SafeSettings(unittest.TestCase):
+    def test_folders_must_be_full_paths(self):
+        self.assertEqual(vd.clean_folder('/home/me/Videos/'), '/home/me/Videos')
+        self.assertEqual(vd.clean_folder('~/Videos'), os.path.join(os.path.expanduser('~'), 'Videos'))
+        for bad in ('Videos', '../x', '', '/a\nb', None, 5, ['x']):
+            self.assertIsNone(vd.clean_folder(bad), bad)
+
+    def test_hand_edited_settings_are_ignored(self):
+        d = tempfile.mkdtemp()
+        old = vd.P.settings
+        try:
+            vd.P.settings = os.path.join(d, 'settings.json')
+            with open(vd.P.settings, 'w') as f:
+                json.dump({'AudioFormat': 'mp3 --exec x', 'VideoFolder': 'relative', 'MaxHeight': 720, 'Notify': 0, 'Unknown': 1}, f)
+            s = vd.load_settings()
+            self.assertEqual(s['AudioFormat'], 'm4a')
+            self.assertEqual(s['VideoFolder'], vd.default_settings()['VideoFolder'])
+            self.assertEqual(s['MaxHeight'], 720)
+            self.assertIs(s['Notify'], False)
+            self.assertNotIn('Unknown', s)
+            with open(vd.P.settings, 'w') as f:
+                f.write('[1, 2]')
+            self.assertEqual(vd.load_settings()['AudioFormat'], 'm4a')
+        finally:
+            vd.P.settings = old
+            shutil.rmtree(d)
+
+    def test_desktop_entries_quote_odd_folder_names(self):
+        self.assertEqual(vd._desktop_quote('/home/a b/x'), '"/home/a b/x"')
+        self.assertEqual(vd._desktop_quote('/h/$x"y%u'), '"/h/\\\\$x\\\\"y%%u"')
+
+    def test_only_https_downloads(self):
+        with self.assertRaises(ValueError):
+            vd.download('http://github.com/x', os.devnull)
 
 
 class Downloads(unittest.TestCase):
@@ -279,6 +330,11 @@ class EndToEnd(TempHome):
         self.assertTrue(os.path.exists(os.path.join(self.home, 'Audio', 'Fake title [abc].m4a')))
         self.assertEqual(oct(os.stat(self.data).st_mode & 0o777), '0o700')
         self.assertEqual(os.listdir(os.path.join(self.data, 'queue', 'running')), [])
+        # only your account can read what it made, and nothing is left in the temp folder
+        for path in (os.path.join(self.data, 'history.jsonl'), os.path.join(self.home, 'Audio', 'Fake title [abc].m4a')):
+            self.assertEqual(os.stat(path).st_mode & 0o077, 0, path)
+        self.assertEqual(os.listdir(os.path.join(self.data, 'temp')), [])
+        self.assertFalse(os.path.exists(os.path.join(self.data, 'history.log')))
 
     def test_failure_is_explained(self):
         r = self.run_app('https://www.youtube.com/watch?v=private')
@@ -336,10 +392,61 @@ class EndToEnd(TempHome):
         jobs = [n for n in os.listdir(os.path.join(self.data, 'queue')) if n.endswith('.job')]
         self.assertEqual(len(jobs), 1)
         self.assertEqual(self.history(), [])
+        part = os.path.join(self.data, 'temp', 'job-' + jobs[0][:-4], 'Fake title [abc].mp4.part')
+        self.assertTrue(os.path.exists(part), 'the half-done download is kept for Resume')
         r = self.run_app('--resume')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue(self.history()[0]['ok'])
         self.assertFalse(os.path.exists(os.path.join(self.data, 'paused')))
+
+    def test_removing_a_running_download_deletes_its_pieces(self):
+        p = subprocess.Popen([sys.executable, APP, 'https://youtu.be/slow'], env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(2)
+            self.assertEqual(len(os.listdir(os.path.join(self.data, 'temp'))), 1)
+            open(os.path.join(self.data, 'cancel-current'), 'w').close()
+            p.wait(timeout=20)
+        finally:
+            p.kill()
+        self.assertEqual(os.listdir(os.path.join(self.data, 'temp')), [])
+        self.assertEqual([n for n in os.listdir(os.path.join(self.data, 'queue')) if n.endswith('.job')], [])
+        self.assertEqual(self.history(), [])
+
+    def test_history_is_forgotten_after_the_chosen_days_and_erase_removes_it_all(self):
+        old = (vd.datetime.datetime.now() - vd.datetime.timedelta(days=40)).replace(microsecond=0).isoformat()
+        with open(os.path.join(self.data, 'history.jsonl'), 'w') as f:
+            f.write(json.dumps({'ok': True, 'url': 'https://old', 'time': old}) + '\n')
+        with open(os.path.join(self.data, 'settings.json')) as f:
+            s = json.load(f)
+        s['KeepHistoryDays'] = 30
+        with open(os.path.join(self.data, 'settings.json'), 'w') as f:
+            json.dump(s, f)
+        self.run_app('https://youtu.be/abc')
+        urls = [e['url'] for e in self.history()]
+        self.assertEqual(urls, ['https://youtu.be/abc'])
+        for n in ('runner.log', 'error.log', 'connection-check.txt', 'playlist-archive.txt'):
+            open(os.path.join(self.data, n), 'w').close()
+        os.environ['VIDEODOWNLOADER_DATA'] = self.data
+        old_p = vd.P
+        try:
+            vd.P = vd.Paths()
+            vd.erase_history()
+        finally:
+            vd.P = old_p
+            os.environ.pop('VIDEODOWNLOADER_DATA')
+        left = os.listdir(self.data)
+        for gone in ('history.jsonl', 'runner.log', 'error.log', 'connection-check.txt', 'playlist-archive.txt', 'status.json'):
+            self.assertNotIn(gone, left)
+        self.assertIn('settings.json', left)
+
+    def test_shrink_without_ffmpeg_keeps_the_video(self):
+        only_python = os.path.join(self.home, 'only-python')      # a PATH with Python (for the stand-in) but no FFmpeg
+        os.makedirs(only_python)
+        os.symlink(sys.executable, os.path.join(only_python, 'python3'))
+        r = self.run_app('--type', 'shrink', 'https://youtu.be/abc', env=dict(self.env, PATH=only_python))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(os.path.join(self.home, 'Videos', 'Fake title [abc].mp4')), r.stdout)
+        self.assertTrue(self.history()[0]['ok'])
 
     def test_button_link_adds_a_job(self):
         r = self.run_app('--uri', 'ytdl://clip/dQw4w9WgXcQ/10-20', env=dict(self.env, DISPLAY=''))
@@ -439,7 +546,8 @@ class AppUpdate(TempHome):
         msg, ran = self.run_update(self.release(self.digest + '  VideoDownloader-linux-9.9.tar.gz\n'))
         self.assertIsNone(msg)
         self.assertEqual(len(ran), 1)
-        self.assertEqual(ran[0][2:], ['--install', '--quiet'])
+        self.assertEqual(ran[0][1], '-I')
+        self.assertEqual(ran[0][3:], ['--install', '--quiet'])
 
     def test_wrong_checksum_is_refused(self):
         with self.assertRaises(RuntimeError):

@@ -365,6 +365,7 @@ Open **Settings** in the window (or from the button's menu). Changes apply to th
 | Show file in Explorer when done | Off | Opens the folder with the new file selected |
 | Auto-update yt-dlp | Weekly | Weekly, monthly or never (also updates Deno) |
 | Tell me about new versions | On | Checks GitHub once a day for a newer Video Downloader |
+| Forget finished downloads after | Never | 1, 7, 30 or 90 days: older entries leave the list and the logs by themselves |
 
 ### Video
 
@@ -430,6 +431,7 @@ Click **Help** in the window:
 | Open the guide | The illustrated setup and how-to guide |
 | Check for updates now (yt-dlp and Deno) | Updates the parts that talk to YouTube; a notification says when it's done |
 | Check my connection (makes a report) | About two minutes: Wi-Fi signal, band and driver, adapter settings, nearby channel crowding, ping times, a 25 MB speed test from Cloudflare, and whether secure connections to YouTube are being intercepted. The report opens in Notepad. |
+| Erase my download history | Deletes the list of finished downloads, all logs, connection reports and the playlist memory in one go (asks first; your files, settings, sign-in and waiting downloads are kept) |
 | Open the data folder | Settings, logs, your encrypted sign-in and watch history |
 | Project page, new versions, report a problem | This page |
 
@@ -503,10 +505,26 @@ your Windows version, Video Downloader version and the error message. Never past
   video ID; anything else is refused and logged.
 - **yt-dlp runs with `--ignore-config --no-plugin-dirs`**, so settings files or plugins planted elsewhere on the PC
   can't change what it does.
-- **The data folder is private** to your Windows account (and Windows itself).
-- **Logs are kept short**, and connection reports (which describe your network) are deleted after 30 days.
+- **The data folder is private** to your account: on Windows only your account (and Windows itself) can open it; on
+  Linux it is `chmod 700` and everything the app makes, downloads included, is readable by your account only.
+- **You decide how long the history stays.** *Clear finished* removes finished downloads from the list and from the
+  log that names them. *Help > Erase my download history* deletes the list, every log, the connection reports and the
+  playlist memory at once. *Settings > General > Forget finished downloads after* does it automatically after 1, 7, 30
+  or 90 days. No log stores the links you click on YouTube, and notifications never show the video's name (they
+  appear on the lock screen).
+- **Half-done downloads are private too**: each one keeps its pieces in its own folder inside the data folder, deleted
+  when it finishes or when you remove it.
+- **Logs are kept short**, and connection reports (which describe your network, never the names of your neighbours'
+  Wi-Fi) are deleted after 30 days.
+- **A hand-edited settings file can't change what runs**: every choice must be one of the listed ones and every
+  folder a full path, otherwise the default is used.
+- **Pause and Stop only ever stop Video Downloader's own programs**, even if an old process number has been reused.
 - **"Update now" only installs this repository's official releases**, and only after checking the download against the
-  release's SHA-256 checksums.
+  release's SHA-256 checksums (on Linux also: https only, and archives with unsafe paths are refused).
+
+What it can't protect against: anyone who can sign in to your account, or an administrator of the computer, can see
+your files and the app's folder, and anything already running as you could too. Use a password on your account, and
+delete downloaded files like any other files when you don't want them any more.
 
 Found a security problem? Please report it privately, as described in [SECURITY.md](SECURITY.md).
 

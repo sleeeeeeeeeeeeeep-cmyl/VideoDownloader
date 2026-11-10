@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Video Downloader - YouTube button",
   "short_name": "Video Downloader",
-  "version": "4.6",
-  "description": "Adds a Download button under YouTube videos that sends them to the free Video Downloader app on your Windows PC.",
+  "version": "4.6.1",
+  "description": "Adds a Download button under YouTube videos that sends them to the free Video Downloader app on your Windows or Linux computer.",
   "homepage_url": "https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader",
   "icons": { "128": "icon-128.png" },
   "content_scripts": [

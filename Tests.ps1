@@ -138,6 +138,61 @@ Check 'watch history: search results are matched to the right video' {
     Expect (Select-SearchMatch -cands @((C -id 'ccccccccccc' -title 'Painting then vs now' -ch 'Yahya'), (C -id 'ddddddddddd' -title 'Painting now vs back then' -ch 'Yahya')) -title 'Painting now vs back then' -channel 'Yahya').id 'ddddddddddd'
 }
 
+Check 'folder settings must be full paths' {
+    if ($IsWin) {
+        foreach ($p in 'C:\Users\me\Videos', 'D:\', '\\nas\share\videos') { if (-not (Test-FolderSetting $p)) { throw "should be allowed: $p" } }
+        foreach ($p in 'Videos', '..\x', 'C:x', 'C:\a"b', "C:\a`nb", '') { if (Test-FolderSetting $p) { throw "should be refused: $p" } }
+    } else {
+        if (-not (Test-FolderSetting '/home/me/Videos')) { throw 'a full path is fine' }
+        if (Test-FolderSetting 'Videos') { throw 'a relative path is not' }
+    }
+}
+Check 'a hand-edited settings file cannot slip in unexpected values' {
+    $script:SettingDefs = @(@{ Key = 'AudioFormat'; Kind = 'choice'; Choices = @('m4a', 'mp3') }, @{ Key = 'MaxHeight'; Kind = 'choice'; Choices = @(720, 1080) },
+                     @{ Key = 'Notify'; Kind = 'bool' }, @{ Key = 'VideoFolder'; Kind = 'folder' })
+    $Defaults = @{ AudioFormat = 'm4a'; MaxHeight = 1080; Notify = $true; VideoFolder = $(if ($IsWin) { 'C:\Videos' } else { '/videos' }) }
+    $script:S = @{ AudioFormat = 'mp3 --exec calc'; MaxHeight = 720; Notify = 'yes'; VideoFolder = '..\..\Windows' }
+    Repair-Config
+    Expect $S.AudioFormat 'm4a'; Expect $S.MaxHeight 720; Expect $S.Notify $true; Expect $S.VideoFolder $Defaults.VideoFolder
+}
+Check 'audio from sites that only have video+sound files, and each download has its own temp folder' {
+    $script:S = @{ VideoCodec = 'av1'; MaxFps = 0; Container = 'mp4'; Fragments = 4; SpeedLimit = 0; AudioQuality = 'best'; AudioCover = $true }
+    $script:AudioFormat = 'm4a'; $script:TempDir = 'T'
+    $a = @(Get-JobArgumentList -job @{ Mode = 'audio'; Url = 'https://x'; JobFile = (Join-Path 'q' '20260101-5.job') } -listFile 'l' -dirOverride '')
+    Expect $a[[array]::IndexOf($a, '-f') + 1] 'ba[ext=m4a]/ba/b'
+    Expect $a[[array]::IndexOf($a, '--audio-format') + 1] 'm4a'
+    Expect (@($a | Where-Object { $_ -like 'temp:*' })[0]) ('temp:' + (Join-Path 'T' 'job-20260101-5'))
+}
+Check 'Pause only ever stops Video Downloader''s own programs' {
+    $other = if ($IsWin) { Start-Process -FilePath (Join-Path $env:WINDIR 'System32\PING.EXE') -ArgumentList '-n 30 127.0.0.1' -WindowStyle Hidden -PassThru }
+             else { Start-Process -FilePath 'sleep' -ArgumentList '30' -PassThru }
+    try {
+        Suspend-OwnProcess $other.Id
+        Start-Sleep -Milliseconds 500
+        if ($other.HasExited) { throw 'another program was stopped' }
+        Suspend-OwnProcess $PID      # (and never itself)
+    } finally { try { $other.Kill() } catch { Write-Debug $_ } }
+}
+Check 'finished downloads are forgotten after the chosen number of days, and Erase removes everything it names' {
+    $Base = Join-Path ([System.IO.Path]::GetTempPath()) ('vd-hist-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $Base | Out-Null
+    try {
+        $HistFile = Join-Path $Base 'history.jsonl'; $LogFile = Join-Path $Base 'history.log'
+        $script:RunnerLog = Join-Path $Base 'runner.log'; $script:ErrorLog = Join-Path $Base 'error.log'
+        $old = (Get-Date).AddDays(-40).ToString('s'); $new = (Get-Date).AddDays(-2).ToString('s')
+        [System.IO.File]::WriteAllLines($HistFile, [string[]]@("{""ok"":true,""url"":""https://old"",""time"":""$old""}", "{""ok"":true,""url"":""https://new"",""time"":""$new""}"))
+        [System.IO.File]::WriteAllLines($LogFile, [string[]]@(($old.Substring(0, 10) + ' 10:00  OK https://old'), ($new.Substring(0, 10) + ' 10:00  OK https://new')))
+        $script:S = @{ KeepHistoryDays = 30 }
+        Limit-PrivateData
+        $h = [System.IO.File]::ReadAllText($HistFile); $l = [System.IO.File]::ReadAllText($LogFile)
+        if ($h -match 'old' -or $h -notmatch 'new' -or $l -match 'old' -or $l -notmatch 'new') { throw "kept: $h / $l" }
+        foreach ($n in 'settings.json', 'runs.log', 'playlist-archive.txt', 'netcheck.txt') { Set-Content -LiteralPath (Join-Path $Base $n) -Value 'x' }
+        Clear-DownloadHistory
+        $left = @(Get-ChildItem -LiteralPath $Base -File | ForEach-Object { $_.Name })
+        Expect ($left -join ',') 'settings.json'
+    } finally { Remove-Item -LiteralPath $Base -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 # ---------------------------------------------------------------- Windows-only: privacy and security features
 if ($IsWin) {
     Write-Host "`nPrivacy and security (Windows)"

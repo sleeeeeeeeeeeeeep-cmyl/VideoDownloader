@@ -1,5 +1,5 @@
 <#
-  Video Downloader 4.5
+  Video Downloader 4.6.1
   Download videos and audio from YouTube (and most other video sites) with yt-dlp.
 
     No arguments / -App    the Video Downloader window (paste links, watch progress, pause, settings)
@@ -20,7 +20,7 @@
 param([string]$Uri, [switch]$App, [switch]$AutoOpened, [switch]$RunQueue, [switch]$Settings, [switch]$Menu, [switch]$UpdateNow, [switch]$NetCheck,
       [switch]$History, [string]$HistoryTask, [string]$Path, [switch]$CheckApp, [switch]$UpdateApp, [switch]$ConnectionCheck)
 
-$AppVersion = '4.6'
+$AppVersion = '4.6.1'
 $UpdateRepo = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'   # GitHub project: new versions are announced here
 
 # ============================== DEFAULT SETTINGS ==============================
@@ -76,6 +76,7 @@ $Defaults = [ordered]@{
     SpeedLimit        = 0           # MB/s, 0 = unlimited
     UseCookies        = 'auto'      # auto | always | never
     CookieSource      = 'file'      # file (an exported cookies.txt, kept encrypted) | firefox (read straight from Firefox)
+    KeepHistoryDays   = 0           # forget finished downloads (and their log lines) after this many days; 0 = keep
 }
 # ================================================================================
 
@@ -384,7 +385,15 @@ function Get-NextJob {
     }
     return $null
 }
-function Complete-Job($job) { Remove-Item -LiteralPath $job.JobFile -Force -ErrorAction SilentlyContinue }
+function Complete-Job($job) {
+    Remove-Item -LiteralPath $job.JobFile -Force -ErrorAction SilentlyContinue
+    Clear-PathSafely (Get-JobTempDir $job)      # half-done pieces of this download
+}
+# each download keeps its half-done pieces in its own folder, so removing a download removes them too
+function Get-JobTempDir($job) {
+    if (-not $job.JobFile) { return $TempDir }
+    return (Join-Path $TempDir ('job-' + [IO.Path]::GetFileNameWithoutExtension([string]$job.JobFile)))
+}
 function Restore-Job($job) {   # put it back in the queue for later
     try { Move-Item -LiteralPath $job.JobFile -Destination (Join-Path $QueueDir (Split-Path -Leaf $job.JobFile)) -Force -ErrorAction Stop } catch { Write-Debug $_ }
 }
@@ -395,7 +404,17 @@ function Restore-Interrupted {
     }
 }
 function Clear-OldTemp {
-    Get-ChildItem -LiteralPath $TempDir -Directory -Filter 'work-*' -ErrorAction SilentlyContinue | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    # (a work folder that still holds a file is only removed after 3 days, so a busy file can still be rescued)
+    Get-ChildItem -LiteralPath $TempDir -Directory -Filter 'work-*' -ErrorAction SilentlyContinue |
+        Where-Object { -not @(Get-ChildItem -LiteralPath $_.FullName -File -Recurse -ErrorAction SilentlyContinue).Count -or $_.LastWriteTime -lt (Get-Date).AddDays(-3) } |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    # half-done pieces of downloads that are no longer waiting (removed, or finished by an older version)
+    foreach ($d in Get-ChildItem -LiteralPath $TempDir -Directory -Filter 'job-*' -ErrorAction SilentlyContinue) {
+        $name = $d.Name.Substring(4) + '.job'
+        if (-not (Test-Path -LiteralPath (Join-Path $QueueDir $name)) -and -not (Test-Path -LiteralPath (Join-Path $RunDir $name))) {
+            Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
     Get-ChildItem -LiteralPath $TempDir -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like 'done-*.txt' -or $_.LastWriteTime -lt (Get-Date).AddDays(-3) } |
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
@@ -419,13 +438,20 @@ function Invoke-Runner {
 function Suspend-Runner {   # pause: stop the downloader; the half-done file and the queue are kept and resume later
     try { Set-Content -LiteralPath $PausedFlag -Value (Get-Date -Format o) } catch { Write-Debug $_ }
     $st = Read-Status
-    foreach ($id in @($st.childPid, $st.runnerPid)) {
-        if (-not $id) { continue }
-        try {
-            if ($env:OS -eq 'Windows_NT') { Start-Process -FilePath 'taskkill.exe' -ArgumentList "/PID $id /T /F" -WindowStyle Hidden -Wait | Out-Null }
-            else { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
-        } catch { Write-Debug $_ }
-    }
+    if (Test-RunnerActive) { foreach ($id in @($st.childPid, $st.runnerPid)) { Suspend-OwnProcess $id } }
+    Clear-SignInLeftover      # a sign-in copy the stopped downloader had open is encrypted again and deleted
+}
+# Stops a process (and what it started) only if it is one of Video Downloader's: an old process number in a status
+# file may belong to a completely different program by now.
+function Suspend-OwnProcess($id) {
+    $n = 0
+    if (-not $id -or -not [int]::TryParse([string]$id, [ref]$n) -or $n -le 4 -or $n -eq $PID) { return }
+    $p = Get-Process -Id $n -ErrorAction SilentlyContinue
+    if (-not $p -or $p.ProcessName -notin 'powershell', 'pwsh', 'yt-dlp', 'ffmpeg', 'ffprobe', 'deno', 'winget') { return }
+    try {
+        if ($env:OS -eq 'Windows_NT') { Start-Process -FilePath (Join-Path $env:WINDIR 'System32\taskkill.exe') -ArgumentList "/PID $n /T /F" -WindowStyle Hidden -Wait | Out-Null }
+        else { Stop-Process -Id $n -Force -ErrorAction SilentlyContinue }
+    } catch { Write-Debug $_ }
 }
 function Read-Status {
     if (-not (Test-Path -LiteralPath $StatusFile)) { return $null }
@@ -470,7 +496,7 @@ function Get-JobArgumentList($job, [string]$listFile, [string]$dirOverride) {
     $a = @('--no-playlist', '--windows-filenames', '--trim-filenames', '150', '--no-mtime',
            '--retries', '30', '--fragment-retries', '30', '--retry-sleep', 'http:exp=1:30', '--retry-sleep', 'fragment:exp=1:30',
            '--socket-timeout', '30', '-N', "$([int]$S.Fragments)", '--embed-metadata',
-           '-P', $dir, '-P', "temp:$TempDir",
+           '-P', $dir, '-P', ('temp:' + (Get-JobTempDir $job)),
            '--print-to-file', 'after_move:filepath', $listFile)
     if ([double]$S.SpeedLimit -gt 0) { $a += @('-r', ('{0}M' -f $S.SpeedLimit)) }
     if ($script:FFmpeg) { $a += @('--ffmpeg-location', (Split-Path -Parent $script:FFmpeg)) }
@@ -488,7 +514,8 @@ function Get-JobArgumentList($job, [string]$listFile, [string]$dirOverride) {
         }
         'audio'    {
             $fmt = [string]$AudioFormat
-            $a += @('-f', $(if ($fmt -eq 'm4a') { 'ba[ext=m4a]/ba' } else { 'ba' }), '-x', '--audio-format', $fmt)
+            # (/b: sites that only offer video with sound in one file still give their audio)
+            $a += @('-f', $(if ($fmt -eq 'm4a') { 'ba[ext=m4a]/ba/b' } else { 'ba/b' }), '-x', '--audio-format', $fmt)
             $q = [string]$S.AudioQuality
             if ($fmt -in 'mp3', 'opus', 'm4a') { $a += @('--audio-quality', $(if ($q -eq 'best') { '0' } else { "${q}K" })) }
             if ([bool]$S.AudioCover -and $fmt -ne 'wav') { $a += @('--embed-thumbnail', '--convert-thumbnails', 'jpg') }
@@ -900,10 +927,37 @@ function Limit-PrivateData {
     Limit-File -path $LogFile -max 2MB -keep 5000
     Limit-File -path $ErrorLog -max 256KB -keep 500
     Limit-File -path (Join-Path $Base 'runs.log') -max 256KB -keep 1000
+    # Settings > General > "Forget finished downloads after": older entries leave the list and the logs
+    $days = 0; [void][int]::TryParse([string]$S.KeepHistoryDays, [ref]$days)
+    if ($days -gt 0) {
+        $cut = (Get-Date).AddDays(-$days).ToString('s')
+        $cutDay = $cut.Substring(0, 10)
+        try {
+            if (Test-Path -LiteralPath $HistFile) {
+                $keep = @([System.IO.File]::ReadAllLines($HistFile) | Where-Object { $_ -match '"time"\s*:\s*"([^"]+)"' -and [string]::CompareOrdinal($Matches[1], $cut) -ge 0 })
+                [System.IO.File]::WriteAllLines($HistFile, [string[]]$keep, (New-Object System.Text.UTF8Encoding($false)))
+            }
+            foreach ($log in $LogFile, (Join-Path $Base 'runs.log'), $ErrorLog) {
+                if (-not (Test-Path -LiteralPath $log)) { continue }
+                $keep = @([System.IO.File]::ReadAllLines($log) | Where-Object { $_ -notmatch '^(\d{4}-\d\d-\d\d)' -or [string]::CompareOrdinal($Matches[1], $cutDay) -ge 0 })
+                [System.IO.File]::WriteAllLines($log, [string[]]$keep, (New-Object System.Text.UTF8Encoding($false)))
+            }
+            if ((Test-Path -LiteralPath $RunnerLog) -and (Get-Item -LiteralPath $RunnerLog).LastWriteTime -lt (Get-Date).AddDays(-$days)) { Remove-Item -LiteralPath $RunnerLog -Force }
+        } catch { Write-Debug $_ }
+    }
     # network/Wi-Fi reports describe your network and PC: they are only kept for 30 days
     Get-ChildItem -LiteralPath $Base -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match '^(netcheck|wificheck|connection-check).*\.txt$' -and $_.LastWriteTime -lt (Get-Date).AddDays(-30) } |
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+}
+
+# Help > "Erase my download history": the list, the logs, the reports and the playlist memory (not your files,
+# settings, sign-in or waiting downloads). The watch-history list has its own "Clear list" button.
+function Clear-DownloadHistory {
+    foreach ($n in 'history.jsonl', 'history.log', 'runner.log', 'runs.log', 'error.log', 'status.json', 'playlist-archive.txt',
+                   'netcheck.txt', 'wificheck.txt', 'connection-check.txt') {
+        Remove-Item -LiteralPath (Join-Path $Base $n) -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # iCloud Drive / OneDrive briefly lock new files while they upload, so move and delete with a few retries
@@ -921,6 +975,12 @@ function Clear-PathSafely([string]$path) {
 }
 
 function Invoke-Shrink([string]$src) {
+    if (-not (Test-Path -LiteralPath $VideoDir)) { New-Item -ItemType Directory -Path $VideoDir -Force | Out-Null }
+    if (-not $script:FFmpeg) {
+        Say 'FFmpeg is missing, so the video was saved without shrinking it.' Red
+        $keep = Join-Path $VideoDir (Split-Path -Leaf $src)
+        if (Move-Safely $src $keep) { return $keep } else { return $src }
+    }
     $crf = @{ smaller = @(36, 28); balanced = @(30, 24); better = @(25, 21) }[[string]$S.ShrinkQuality]
     if (-not $crf) { $crf = @(30, 24) }
     $enc = @('-c:v', 'libx265', '-crf', "$($crf[1])", '-preset', 'medium', '-tag:v', 'hvc1')
@@ -953,7 +1013,11 @@ function Get-Codec([string]$file, [string]$kind) {
     return ("$r").Trim()
 }
 function Convert-ForPhone([string]$src) {
-    if (-not $script:FFmpeg -or -not $script:FFprobe) { return $src }
+    if (-not (Test-Path -LiteralPath $PhoneDir)) { New-Item -ItemType Directory -Path $PhoneDir -Force | Out-Null }
+    if (-not $script:FFmpeg -or -not $script:FFprobe) {   # can't check or convert it: save it as downloaded
+        $as = Join-Path $PhoneDir (Split-Path -Leaf $src)
+        if (Move-Safely $src $as) { return $as } else { return $src }
+    }
     Write-Status @{ phase = 'converting' } -Force
     $v = Get-Codec $src 'V'; $au = Get-Codec $src 'a'
     $vArgs = @('-c:v', 'copy')
@@ -963,7 +1027,6 @@ function Convert-ForPhone([string]$src) {
     $aArgs = @('-c:a', 'copy')
     if ($au -and $au -ne 'aac') { $aArgs = @('-c:a', 'aac', '-b:a', '160k') }
     if ($vArgs[1] -ne 'copy' -or $aArgs[1] -ne 'copy') { Say "Converting to a phone-friendly format (was $v / $au)..." Yellow }
-    if (-not (Test-Path -LiteralPath $PhoneDir)) { New-Item -ItemType Directory -Path $PhoneDir -Force | Out-Null }
     $final = Join-Path $PhoneDir ([IO.Path]::GetFileNameWithoutExtension($src) + '.mp4')
     $tmp = Join-Path (Split-Path -Parent $src) ('phone-{0}.mp4' -f (Get-Random))
     $code = Invoke-Native $script:FFmpeg (@('-hide_banner', '-loglevel', 'error', '-stats', '-y', '-i', $src, '-map', '0:V:0', '-map', '0:a:0?', '-map', '0:s?') + $vArgs + $aArgs + @('-c:s', 'mov_text', '-movflags', '+faststart', $tmp))
@@ -1032,7 +1095,21 @@ function Invoke-Job($job) {
     }
     if ($job.Mode -eq 'phone') { $files = @($files | ForEach-Object { Convert-ForPhone $_ }) }
     if ($job.Mode -eq 'shrink') { $files = @($files | ForEach-Object { Invoke-Shrink $_ }) }
-    if ($workDir) { Clear-PathSafely $workDir }
+    if ($workDir) {
+        # a finished file still in the work folder (it couldn't be moved) goes to its folder rather than being lost
+        $target = if ($job.Mode -eq 'phone') { $PhoneDir } else { $VideoDir }
+        $stuck = $false
+        $placed = New-Object System.Collections.Generic.List[string]
+        foreach ($f in $files) {
+            if (-not $f.StartsWith($workDir, [StringComparison]::OrdinalIgnoreCase)) { $placed.Add($f); continue }
+            if (-not (Test-Path -LiteralPath $target)) { New-Item -ItemType Directory -Path $target -Force | Out-Null }
+            $to = Join-Path $target (Split-Path -Leaf $f)
+            if (Move-Safely $f $to) { $placed.Add($to) } else { $stuck = $true; $placed.Add($f) }
+        }
+        $files = @($placed)
+        if ($stuck) { Say "Something kept a file busy, so it was left in $workDir - nothing was deleted." Red }
+        else { Clear-PathSafely $workDir }
+    }
     $title = [string]$script:Status['title']
     if (-not $title -and $files.Count) { $title = [IO.Path]::GetFileNameWithoutExtension($files[0]) }
 
@@ -1123,9 +1200,10 @@ function Show-Finished {
         try { Start-Process explorer.exe -ArgumentList ('/select,"{0}"' -f $script:Done[$n - 1]) } catch { Write-Debug $_ }
     }
     if ($Notify -and $env:OS -eq 'Windows_NT') {
+        # (no video names: notifications also show on the lock screen and in the notification list)
         if ($nf) { Show-Toast ("{0} download(s) failed" -f $nf) 'Open Video Downloader to see why.' }
-        elseif ($n -eq 1) { Show-Toast 'Download finished' ([IO.Path]::GetFileName($script:Done[0])) }
-        else { Show-Toast "$n downloads finished" ([IO.Path]::GetFileName($script:Done[$n - 1])) }
+        elseif ($n -eq 1) { Show-Toast 'Download finished' 'Open Video Downloader to see it.' }
+        else { Show-Toast "$n downloads finished" 'Open Video Downloader to see them.' }
     }
     $script:Done.Clear()
 }
@@ -1160,6 +1238,8 @@ $SettingDefs = @(
     @{ Tab = 'General'; Key = 'AutoUpdateDays'; Label = 'Auto-update yt-dlp';      Kind = 'choice'; Choices = @(7, 30, 0)
        Names = @{ '7' = 'Weekly'; '30' = 'Monthly'; '0' = 'Never' } }
     @{ Tab = 'General'; Key = 'CheckAppUpdates'; Label = 'Tell me about new versions'; Kind = 'bool' }
+    @{ Tab = 'General'; Key = 'KeepHistoryDays'; Label = 'Forget finished downloads after'; Kind = 'choice'; Choices = @(0, 90, 30, 7, 1)
+       Names = @{ '0' = 'Never (keep the list)'; '90' = '90 days'; '30' = '30 days'; '7' = '7 days'; '1' = '1 day' } }
     # Video
     @{ Tab = 'Video'; Key = 'VideoFolder';     Label = 'Save videos to';           Kind = 'folder' }
     @{ Tab = 'Video'; Key = 'MaxHeight';       Label = 'Video / clip / playlist quality'; Kind = 'choice'; Choices = @(480, 720, 1080, 1440, 2160)
@@ -1211,6 +1291,30 @@ $SettingDefs = @(
     @{ Tab = 'Network'; Key = 'CookieSource';  Label = 'Where your sign-in comes from'; Kind = 'choice'; Choices = @('file', 'firefox')
        Names = @{ 'file' = 'A cookies.txt file (see Help)'; 'firefox' = 'Firefox (just stay signed in to YouTube there)' } }
 )
+
+# A settings.json edited by hand (or by another program) can't slip unexpected values into the downloads:
+# every choice must be one of the listed ones and every folder a full path, otherwise the default is used.
+function Test-FolderSetting([string]$p) {
+    if (-not $p -or $p -match '[\x00-\x1f"<>|?*]') { return $false }
+    if ($env:OS -ne 'Windows_NT') { return $p.StartsWith('/') }     # (only when testing on Linux)
+    try { return [IO.Path]::IsPathRooted($p) -and ($p -match '^[A-Za-z]:\\' -or $p -match '^\\\\[^\\]+\\[^\\]+') } catch { return $false }
+}
+function Repair-Config {
+    $changed = $false
+    foreach ($d in $SettingDefs) {
+        $v = $script:S[$d.Key]
+        $ok = switch ($d.Kind) {
+            'choice' { @($d.Choices | ForEach-Object { "$_" }) -contains "$v" }
+            'folder' { Test-FolderSetting ([string]$v) }
+            'bool'   { $v -is [bool] }
+        }
+        if (-not $ok) { $script:S[$d.Key] = $Defaults[$d.Key]; $changed = $true }
+        elseif ($d.Kind -eq 'choice' -and $v -isnot [string]) {   # numbers come back from JSON as numbers of another type
+            $script:S[$d.Key] = @($d.Choices | Where-Object { "$_" -eq "$v" })[0]
+        }
+    }
+    if ($changed) { Use-Config }
+}
 
 function Format-Setting($def, $v) {
     if ($def.Kind -eq 'bool') { if ($v) { return 'On' } else { return 'Off' } }
@@ -1264,7 +1368,7 @@ function Show-SettingsConsole {
         $d = $SettingDefs[$n - 1]
         switch ($d.Kind) {
             'bool'   { $S[$d.Key] = -not [bool]$S[$d.Key] }
-            'folder' { $f = Select-Folder ([string]$S[$d.Key]) $d.Label; if ($f) { $S[$d.Key] = $f } }
+            'folder' { $f = Select-Folder ([string]$S[$d.Key]) $d.Label; if ($f -and (Test-FolderSetting $f)) { $S[$d.Key] = $f } }
             'choice' {
                 $idx = -1
                 for ($k = 0; $k -lt $d.Choices.Count; $k++) { if ("$($d.Choices[$k])" -eq "$($S[$d.Key])") { $idx = $k } }
@@ -1415,7 +1519,7 @@ function Show-SettingsWindow($ownerForm = $null) {
     foreach ($d in $SettingDefs) {
         $c = $controls[$d.Key]
         switch ($d.Kind) {
-            'folder' { $t = $c.Text.Trim().Trim('"'); if ($t) { $S[$d.Key] = $t } }
+            'folder' { $t = $c.Text.Trim().Trim('"'); if ($t -and (Test-FolderSetting $t)) { $S[$d.Key] = $t } }
             'bool'   { $S[$d.Key] = [bool]$c.Checked }
             'choice' { if ($c.SelectedIndex -ge 0) { $S[$d.Key] = $d.Choices[$c.SelectedIndex] } }
         }
@@ -1424,6 +1528,8 @@ function Show-SettingsWindow($ownerForm = $null) {
     Save-Config; Use-Config
     return $true
 }
+
+Repair-Config
 
 # Settings window on Windows; the text version if the window can't open for any reason
 function Show-ConfigWindow($ownerForm = $null) {
@@ -1955,12 +2061,7 @@ function Invoke-HistoryTask([string]$task, [string]$file) {
 
 function Suspend-HistoryTask {
     $st = Read-WhStatus
-    if ($st -and $st.pid) {
-        try {
-            if ($env:OS -eq 'Windows_NT') { Start-Process -FilePath 'taskkill.exe' -ArgumentList "/PID $($st.pid) /T /F" -WindowStyle Hidden -Wait | Out-Null }
-            else { Stop-Process -Id $st.pid -Force -ErrorAction SilentlyContinue }
-        } catch { Write-Debug $_ }
-    }
+    if ($st -and $st.pid -and (Test-HistoryBusy)) { Suspend-OwnProcess $st.pid; Clear-SignInLeftover }
     Write-WhStatus @{ state = 'stopped'; message = 'Stopped. Click "Find missing lengths" to carry on later.' }
 }
 
@@ -2585,6 +2686,7 @@ function Show-App {
                 if ($ans -eq 'Yes') {
                     if (Test-RunnerActive) { Suspend-Runner; Start-Sleep -Milliseconds 800 }
                     Remove-Item -LiteralPath $r.file -Force -ErrorAction SilentlyContinue
+                    Clear-PathSafely (Get-JobTempDir @{ JobFile = $r.file })     # its half-done pieces
                     if ((Get-QueueCount) -gt 0) { Invoke-Runner }
                 }
             }
@@ -2598,13 +2700,23 @@ function Show-App {
         Sync-AppView -Force
     })
     $histBtn.Add_Click({ $script:UserTouched = $true; Show-HistoryWindow $script:Form; Sync-AppView -Force })
-    $clearBtn.Add_Click({ $script:UserTouched = $true; Set-Content -LiteralPath $HistFile -Value @() -Encoding UTF8; Sync-AppView -Force })
+    $clearBtn.Add_Click({
+        $script:UserTouched = $true
+        Set-Content -LiteralPath $HistFile -Value @() -Encoding UTF8
+        # the text logs name the downloads too
+        Remove-Item -LiteralPath $LogFile -Force -ErrorAction SilentlyContinue
+        if (-not (Test-RunnerActive)) { Remove-Item -LiteralPath $RunnerLog -Force -ErrorAction SilentlyContinue }
+        $script:StatusLine.ForeColor = [System.Drawing.Color]::DimGray
+        $script:StatusLine.Text = 'Finished downloads cleared from the list (your files are untouched).'
+        Sync-AppView -Force
+    })
     $openBtn.Add_Click({ $script:UserTouched = $true; Open-Folder $VideoDir })
     $helpMenu = New-Object System.Windows.Forms.ContextMenuStrip
     $miGuide = $helpMenu.Items.Add('Open the guide')
     $miUpdate = $helpMenu.Items.Add('Check for updates now (yt-dlp and Deno)')
     $miCheck = $helpMenu.Items.Add('Check my connection (makes a report)')
     [void]$helpMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+    $miErase = $helpMenu.Items.Add('Erase my download history...')
     $miData = $helpMenu.Items.Add('Open the data folder (settings, logs)')
     $miSite = $helpMenu.Items.Add('Project page, new versions, report a problem')
     $miGuide.Add_Click({ Open-Guide })
@@ -2618,6 +2730,15 @@ function Show-App {
         Invoke-Hidden @('-ConnectionCheck')
         $script:StatusLine.ForeColor = [System.Drawing.Color]::DimGray
         $script:StatusLine.Text = 'Checking your connection (about 2 minutes, includes a 25 MB speed test) - the report opens by itself.'
+    })
+    $miErase.Add_Click({
+        if (Test-RunnerActive) { [void][System.Windows.Forms.MessageBox]::Show('A download is running. Pause it (or let it finish) first.', 'Video Downloader', 'OK', 'Information'); return }
+        $a = [System.Windows.Forms.MessageBox]::Show("Erase your download history?`n`nThis deletes the list of finished downloads, the logs, the connection reports and the list of playlist videos already downloaded.`n`nYour downloaded files, settings, sign-in and waiting downloads are kept. (The Watch history window has its own 'Clear list' button.)", 'Video Downloader', 'YesNo', 'Question')
+        if ($a -ne 'Yes') { return }
+        Clear-DownloadHistory
+        $script:StatusLine.ForeColor = [System.Drawing.Color]::DimGray
+        $script:StatusLine.Text = 'Your download history and logs were erased.'
+        Sync-AppView -Force
     })
     $miData.Add_Click({ Open-Folder $Base })
     $miSite.Add_Click({ Start-Process "https://github.com/$UpdateRepo" })
@@ -2681,7 +2802,8 @@ if ($PSBoundParameters.ContainsKey('Uri')) {
 }
 Protect-CookieFile
 Limit-PrivateData
-try { Add-Content -LiteralPath (Join-Path $Base 'runs.log') -Value ("{0:yyyy-MM-dd HH:mm:ss}  v{1} uri='{2}' app={3} run={4} settings={5} menu={6}" -f (Get-Date), $AppVersion, $Uri, [bool]$App, [bool]$RunQueue, [bool]$Settings, [bool]$Menu) -Encoding UTF8 } catch { Write-Debug $_ }
+# (which part started - never the link itself, so this log doesn't list what you download)
+try { Add-Content -LiteralPath (Join-Path $Base 'runs.log') -Value ("{0:yyyy-MM-dd HH:mm:ss}  v{1} link={2} app={3} run={4} settings={5} menu={6}" -f (Get-Date), $AppVersion, [bool]$Uri, [bool]$App, [bool]$RunQueue, [bool]$Settings, [bool]$Menu) -Encoding UTF8 } catch { Write-Debug $_ }
 
 if ($Settings) { Show-ConfigWindow; exit 0 }
 if ($CheckApp) { Invoke-AppUpdateCheck; exit 0 }

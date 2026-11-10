@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Video Downloader - YouTube button
 // @namespace    local.ytdl
-// @version      4.6
+// @version      4.6.1
 // @homepageURL  https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader
 // @supportURL   https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/issues
 // @updateURL    https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js
 // @downloadURL  https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js
-// @description  Adds a Download button under YouTube videos (also Shorts, Live and YouTube Music) that sends the video to the Video Downloader app on this PC. Video, phone, best quality, editor-friendly, audio and clips.
+// @description  Adds a Download button under YouTube videos (also Shorts, Live and YouTube Music) that sends the video to the Video Downloader app on this computer (Windows or Linux). Video, phone, best quality, editor-friendly, audio and clips.
 // @match        https://www.youtube.com/*
 // @match        https://music.youtube.com/*
 // @grant        none
@@ -20,7 +20,7 @@
   const SHORTCUT_KEY = 'D';          // Shift+D = download with your ✓ option
   const CLIP_KEY = 'C';              // Shift+C = open the clip panel
   const DEFAULT_CLIP_SECONDS = 30;
-  const MODES = [                    // keys must match VideoDownloader.ps1
+  const MODES = [                    // keys must match VideoDownloader.ps1 and video-downloader.py
     { key: 'video', label: 'Video',            hint: 'small file · for this PC' },
     { key: 'phone', label: 'Phone',            hint: 'H.264 · plays on any phone' },
     { key: 'best',  label: 'Best quality',     hint: 'highest quality · big file' },
@@ -160,7 +160,7 @@
     const now = Date.now();
     if (now - lastSent < 1500) return false;           // ignore accidental double-clicks
     lastSent = now;
-    location.href = uri;                               // handled by the Video Downloader app on this PC
+    location.href = uri;                               // handled by the Video Downloader app on this computer
     toast(`Sent to Video Downloader: ${what}. If your browser asks, allow it to open Video Downloader.`);
     const main = $(`#${ID} .main`);
     if (main) { main.classList.add('sent'); setTimeout(() => main.classList.remove('sent'), 1500); }
@@ -186,6 +186,7 @@
     sIn.classList.toggle('bad', s === null);
     eIn.classList.toggle('bad', e === null || (s !== null && e <= s));
     if (s === null || e === null || e <= s) { toast('Clip times: use m:ss, and the end must be after the start'); return; }
+    if (e > 999999) { toast('Clips can end at most 277 hours into a video'); return; }   // the app accepts up to 6 digits
     if (launch(`ytdl://clip/${id}/${s}-${e}`, `Clip ${clock(s)} – ${clock(e)}`)) closeMenu();
   }
 

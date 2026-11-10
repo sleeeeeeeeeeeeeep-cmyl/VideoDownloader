@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <title>Video Downloader Guide</title>
 <style>
   :root {
@@ -227,6 +229,12 @@
     <details><summary>Where are the log files?</summary>
       <p>Click <b>Help &rarr; Open the data folder</b> (it's <code>%LOCALAPPDATA%\VideoDownloader</code>): <code>history.log</code> (every download), <code>runner.log</code> (the last downloads in detail) and <code>error.log</code>.
       Logs are trimmed automatically, and connection reports are deleted after 30 days.</p></details>
+    <details><summary>Privacy: who can see what I download?</summary>
+      <p>Everything Video Downloader keeps (the list of downloads, logs, your sign-in and watch history) is in a folder only your Windows account can open; your sign-in is also encrypted so a copied file is useless on another account or PC.
+      Notifications say "Download finished" without the video's name.
+      <b>Clear finished</b> removes finished downloads from the list and the log that names them; <b>Help &rarr; Erase my download history</b> deletes the list, all logs, the connection reports and the playlist memory in one go;
+      and <b>Settings &rarr; General &rarr; Forget finished downloads after</b> does it automatically after 1, 7, 30 or 90 days.
+      Your downloaded files themselves are never touched - delete those like any other file. Anyone who can sign in to your Windows account (or is an administrator of the PC) can still see your files, so use a password on your account.</p></details>
     <details><summary>How do I update Video Downloader?</summary>
       <p>When a new version is out, a blue <b>"Version ... is out - update"</b> link appears at the top right of the window. Click it and choose <b>Yes</b>:
       it downloads the new version, checks it against its published checksum, installs it and reopens the window. Your settings and downloads are kept.

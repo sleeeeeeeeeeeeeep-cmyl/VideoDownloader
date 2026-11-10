@@ -46,6 +46,13 @@ SIGN-IN (age-restricted or members-only videos)
   or Vivaldi). It is only used for YouTube links, and by default only when a
   video needs it.
 
+PRIVACY
+  Everything the app makes (settings, history, logs, half-done and finished
+  downloads) is readable by your account only. Clear finished removes finished
+  downloads from the list; Help > Erase my download history deletes the list,
+  logs and reports; Settings > General > Forget finished downloads after does it
+  automatically. Notifications never show video names.
+
 HELP
   The full guide, troubleshooting and new versions:
   https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader#linux

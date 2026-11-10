@@ -1,5 +1,38 @@
 # Changelog
 
+## 4.6.1
+
+A full check of every file for anything that could stop downloads, or let someone else get at what you download.
+
+Downloads
+
+- Audio-only now works on sites that only offer video and sound in one file (it failed with "Requested format is not
+  available").
+- Phone and Shrink downloads are never lost: if FFmpeg is missing or a file can't be moved (OneDrive or iCloud busy),
+  the video is saved as downloaded instead of being deleted with the work folder.
+- Linux: a playlist where a few videos are unavailable now counts as done (like on Windows); "already downloaded" is
+  no longer reported as a failure; a download that can't start, or any unexpected error, fails that one download
+  instead of stopping the downloader; a failed helper download during setup no longer stops setup; file names are the
+  same as on Windows, so they copy to USB sticks and phones.
+
+Privacy and security
+
+- New: Help > Erase my download history (the list, all logs, connection reports and playlist memory, in one go), and
+  Settings > General > Forget finished downloads after (1, 7, 30 or 90 days).
+- Clear finished and Remove really delete the entries, and Clear finished also clears the log that names them.
+- No log records the links you click any more, and notifications no longer show video names (they appear on the lock
+  screen).
+- Each download keeps its half-done pieces in its own private folder, deleted when it finishes or is removed.
+- Pause and Stop only ever stop Video Downloader's own programs (an old process number in a status file could belong
+  to another program), and a sign-in copy the stopped downloader had open is encrypted again straight away.
+- A hand-edited or damaged settings file can't slip unexpected values into downloads: choices must be listed ones and
+  folders full paths.
+- Linux: everything the app creates, downloads included, is readable by your account only; the connection report no
+  longer lists the names of nearby Wi-Fi networks; downloads during setup and updates are https-only, also after
+  redirects; Python runs isolated (`-I`) so files in the current folder can't change it; install.sh only runs once it
+  has downloaded completely; desktop menu entries are quoted correctly whatever your folder names are.
+- The guide has a Content Security Policy and a new "Privacy" section.
+
 ## 4.6
 
 - **New: Video Downloader for Linux.** The same downloads (all eight types, every setting), the same queue that waits
