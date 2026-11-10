@@ -11,15 +11,15 @@ body:
     id: version
     attributes:
       label: Video Downloader version
-      description: At the bottom of the guide (Help > Open the guide), or in Windows Settings > Apps > Installed apps.
-      placeholder: "4.5"
+      description: At the bottom of the guide (Help > Open the guide), in Windows Settings > Apps > Installed apps, or on Linux with `video-downloader --version`.
+      placeholder: "4.6"
     validations:
       required: true
   - type: dropdown
     id: windows
     attributes:
-      label: Windows version
-      options: [Windows 11, Windows 10, Other]
+      label: Computer
+      options: [Windows 11, Windows 10, Linux, Other]
     validations:
       required: true
   - type: dropdown
