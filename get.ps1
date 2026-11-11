@@ -1,12 +1,17 @@
 <#
-  Video Downloader - one-line install for Windows.
+  Video Downloader - one-line install AND update for Windows.
 
   Press Windows key + R, paste this line and press Enter (or paste it into PowerShell):
 
     powershell -c "[Net.ServicePointManager]::SecurityProtocol=3072;irm https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/get.ps1|iex"
 
-  It downloads the newest release from this project's GitHub page, checks it against the release's published
-  SHA-256 checksums, and runs its setup (the same as unzipping it and double-clicking Setup.cmd).
+  Not installed yet: it downloads the newest release from this project's GitHub page, checks it against the
+  release's published SHA-256 checksums, and runs its setup (the same as unzipping it and double-clicking Setup.cmd).
+  Already installed (ANY earlier version): it updates Video Downloader to the newest release the same way, keeping
+  your settings, queue and history, and brings yt-dlp and Deno up to date. If you already have the newest version,
+  only yt-dlp and Deno are updated.
+  From version 4.7 on, "video-downloader update" (Run box or any terminal) runs this same file, so the newest update
+  steps are always the ones used. Set VD_REINSTALL=1 (or use "video-downloader reinstall") to reinstall anyway.
   Installs for your Windows account only; no administrator rights needed.
 #>
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Coloured text for the person watching the console window')]
@@ -18,6 +23,23 @@ param()
     $repo = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'
     $work = $null
 
+    # the version number inside an installed or downloaded VideoDownloader.ps1 ('' if none)
+    function Get-ScriptVersion([string]$path) {
+        try { if ((Test-Path -LiteralPath $path) -and ([IO.File]::ReadAllText($path) -match "\`$AppVersion = '([0-9.]+)'")) { return $Matches[1] } } catch { Write-Debug $_ }
+        return ''
+    }
+    function ConvertTo-Ver([string]$t) {
+        $t = "$t".Trim().TrimStart('v', 'V')
+        if ($t -notmatch '^\d+(\.\d+){0,3}$') { return $null }
+        if ($t -notmatch '\.') { $t += '.0' }
+        return [version]$t
+    }
+    function Wait-Close([int]$seconds) {
+        if ($env:VD_FROM_COMMAND) { return }      # (a terminal window stays open by itself)
+        Write-Host ''
+        Write-Host "  This window closes by itself in $seconds seconds." -ForegroundColor DarkGray
+        Start-Sleep -Seconds $seconds
+    }
     function Write-SetupFailure([string]$why) {
         Write-Host ''
         Write-Host "  Video Downloader could not be installed: $why" -ForegroundColor Red
@@ -35,6 +57,32 @@ param()
         Write-Host '  Video Downloader - finding the newest version...' -ForegroundColor Cyan
         $headers = @{ 'User-Agent' = 'VideoDownloader-Setup'; 'Accept' = 'application/vnd.github+json' }
         $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers $headers -UseBasicParsing
+        $latest = ([string]$rel.tag_name).TrimStart('v', 'V')
+        $installed = Join-Path $env:LOCALAPPDATA 'Programs\VideoDownloader\VideoDownloader.ps1'
+        $have = Get-ScriptVersion $installed
+        $hv = ConvertTo-Ver $have; $lv = ConvertTo-Ver $latest
+        if ($hv -and $lv -and $hv -ge $lv -and -not $env:VD_REINSTALL) {
+            # nothing newer to install: bring the parts that talk to YouTube up to date instead
+            if ($hv -gt $lv) { Write-Host "  You have Video Downloader $have, which is newer than the newest release ($latest)." -ForegroundColor Green }
+            else { Write-Host "  You already have the newest Video Downloader ($have)." -ForegroundColor Green }
+            $winget = Get-Command winget -ErrorAction SilentlyContinue
+            if ($winget) {
+                Write-Host '  Checking yt-dlp and Deno for updates...' -ForegroundColor Cyan
+                foreach ($id in 'yt-dlp.yt-dlp', 'DenoLand.Deno') {
+                    & $winget.Source upgrade --id $id -e --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity | Out-Host
+                }
+                try { Set-Content -LiteralPath (Join-Path $env:LOCALAPPDATA 'VideoDownloader\last-update.txt') -Value (Get-Date -Format o) } catch { Write-Debug $_ }
+                Write-Host '  Done: yt-dlp and Deno are checked and updated where a newer version was out.' -ForegroundColor Green
+            } else {
+                Write-Host '  (winget is missing, so yt-dlp and Deno could not be checked. Install "App Installer" from the Microsoft Store.)' -ForegroundColor Yellow
+            }
+            Write-Host '  To install this version again anyway:  video-downloader reinstall' -ForegroundColor DarkGray
+            Wait-Close 10
+            return
+        }
+        if ($have -and $have -eq $latest) { Write-Host "  Reinstalling Video Downloader $latest..." -ForegroundColor Cyan }
+        elseif ($have) { Write-Host "  Updating Video Downloader from $have to $latest..." -ForegroundColor Cyan }
+        else { Write-Host "  Installing Video Downloader $latest..." -ForegroundColor Cyan }
         $prefix = "https://github.com/$repo/releases/download/"
         $zip = @($rel.assets | Where-Object { $_.name -match '^VideoDownloader-[0-9.]+\.zip$' })[0]
         $sums = @($rel.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' })[0]

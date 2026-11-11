@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.7
+
+One command updates everything, from any version.
+
+- **`video-downloader update`** on Windows (Run box, Command Prompt, PowerShell or Windows Terminal) and on Linux
+  updates Video Downloader to the newest release and brings yt-dlp and Deno up to date. It always runs the newest
+  update steps published on GitHub (`get.ps1` / `install.sh`), so the same command keeps working for every future
+  version. Also: `video-downloader reinstall`, `version`, `settings`, `history`, `menu`, `uninstall` and `help`.
+- **Older versions update the same way:** the one-line install from the README now also updates any earlier
+  installation (4.0 and up), keeping your settings, queue and history. If you already have the newest version it only
+  updates yt-dlp and Deno.
+- Updating no longer reopens the setup guide or copies the button script to your clipboard; it says which version
+  you had and which you have now.
+- Windows: a **Start menu > Update Video Downloader** shortcut, and Setup adds the command's folder to your PATH
+  (your account only; removed again when you uninstall).
+- README: clearer step-by-step instructions throughout (where to find things, what each step looks like, and
+  exactly what to type), and a rewritten [Updates](README.md#updates) section.
+
 ## 4.6.2
 
 Easier to install.

@@ -1,5 +1,5 @@
 <#
-  Video Downloader - uninstaller (Settings > Apps > Video Downloader > Uninstall).
+  Video Downloader - uninstaller (Settings > Apps > Video Downloader > Uninstall, or "video-downloader uninstall").
   Your downloaded videos are never touched.
 #>
 $ErrorActionPreference = 'Continue'
@@ -23,9 +23,24 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
 Remove-Item -LiteralPath 'HKCU:\Software\Classes\ytdl' -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\VideoDownloader' -Recurse -Force -ErrorAction SilentlyContinue
 foreach ($lnk in (Join-Path ([Environment]::GetFolderPath('Programs')) 'Video Downloader.lnk'),
+                 (Join-Path ([Environment]::GetFolderPath('Programs')) 'Update Video Downloader.lnk'),
                  (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Video Downloader.lnk')) {
     Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue
 }
+# take the "video-downloader" command's folder back out of your PATH (other entries are left exactly as they were)
+try {
+    $bin = Join-Path $Dest 'bin'
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+    if ($key) {
+        try {
+            $cur = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            $keep = @($cur -split ';' | Where-Object { $_ -ne '' -and [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -ine $bin.TrimEnd('\') })
+            if ($keep.Count -ne @($cur -split ';' | Where-Object { $_ -ne '' }).Count) { $key.SetValue('Path', ($keep -join ';'), $key.GetValueKind('Path')) }
+        } finally { $key.Close() }
+        [Environment]::SetEnvironmentVariable('VideoDownloaderSetup', '1', 'User')     # (announces the change)
+        [Environment]::SetEnvironmentVariable('VideoDownloaderSetup', $null, 'User')
+    }
+} catch { Write-Debug $_ }
 if ($deleteData -eq 'Yes') { Remove-Item -LiteralPath $Data -Recurse -Force -ErrorAction SilentlyContinue }
 
 # this script lives in the folder being removed, so the folder is deleted a moment after it exits

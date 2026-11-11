@@ -34,7 +34,7 @@ function Copy-To([string]$name, [string]$dir, [string]$as = '') {
 }
 # the installer ZIP
 'Setup.cmd', 'README.txt' | ForEach-Object { Copy-To $_ $top }
-'Install.ps1', 'Uninstall.ps1', 'VideoDownloader.ps1', 'VideoDownloader.user.js', 'VideoDownloader.ico', 'Guide.html' | ForEach-Object { Copy-To $_ $files }
+'Install.ps1', 'Uninstall.ps1', 'VideoDownloader.ps1', 'VideoDownloader.user.js', 'VideoDownloader.ico', 'Guide.html', 'video-downloader.cmd' | ForEach-Object { Copy-To $_ $files }
 # the browser extension: the same script as the userscript, run as a content script
 Copy-To -name 'extension-manifest.json' -dir $ext -as 'manifest.json'
 Copy-To -name 'VideoDownloader.user.js' -dir $ext -as 'content.js'

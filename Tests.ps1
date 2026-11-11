@@ -32,7 +32,7 @@ foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Rel
         if ($e.Count) { throw (($e | ForEach-Object { $_.ToString() }) -join ' | ') }
     }
 }
-foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Release.ps1', 'Tests.ps1', 'get.ps1', 'Setup.cmd', 'README.txt') {
+foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Release.ps1', 'Tests.ps1', 'get.ps1', 'Setup.cmd', 'video-downloader.cmd', 'README.txt') {
     Check "$f is plain ASCII (Windows PowerShell 5.1 and cmd misread other characters)" {
         $b = [System.IO.File]::ReadAllBytes((Join-Path $root $f))
         $n = 0; foreach ($x in $b) { if ($x -gt 127) { $n++ } }
@@ -40,8 +40,53 @@ foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Rel
     }
 }
 foreach ($f in 'Guide.html', 'VideoDownloader.user.js', 'VideoDownloader.ico', 'extension-manifest.json', 'extension-icon.png', 'README.md', 'LICENSE',
-           'video-downloader.py', 'install.sh', 'video-downloader.png', 'README-linux.txt', 'build-linux-release.py', 'get.ps1') {
+           'video-downloader.py', 'install.sh', 'video-downloader.png', 'README-linux.txt', 'build-linux-release.py', 'get.ps1', 'video-downloader.cmd') {
     Check "$f is present" { Test-Path -LiteralPath (Join-Path $root $f) }
+}
+foreach ($f in 'Setup.cmd', 'video-downloader.cmd') {
+    Check "$f has Windows line endings (with bare LF, cmd can jump to the wrong label)" {
+        $b = [System.IO.File]::ReadAllBytes((Join-Path $root $f))
+        for ($i = 0; $i -lt $b.Length; $i++) { if ($b[$i] -eq 10 -and ($i -eq 0 -or $b[$i - 1] -ne 13)) { throw "bare LF at byte $i" } }
+    }
+}
+
+# ---------------------------------------------------------------- the update command
+Write-Host "`nThe video-downloader command and the one-line install/update"
+$vdc = Read-Text 'video-downloader.cmd'
+Check '"video-downloader update" runs the newest get.ps1 from this project (so it works for every future version)' {
+    if (-not $vdc.Contains("set `"VD_GET=https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/get.ps1`"")) { throw 'wrong or missing get.ps1 address' }
+    if ($vdc -notmatch "irm '%VD_GET%' \| iex") { throw 'get.ps1 is not run' }
+}
+Check 'the update runs from one ( ) block, so replacing the .cmd mid-update is harmless' {
+    $i = $vdc.IndexOf(':cmd_update'); $blk = $vdc.Substring($i)
+    $open = $blk.IndexOf("`n(") ; $ps = $blk.IndexOf('"%VD_PS%"'); $close = $blk.IndexOf("`n)")
+    if ($open -lt 0 -or -not ($open -lt $ps -and $ps -lt $close)) { throw 'the PowerShell call is not inside the block' }
+    if ($blk.Substring($open, $close - $open) -match 'goto |call :') { throw 'the block jumps back into the file' }
+}
+Check 'every command the help lists has a label' {
+    foreach ($w in 'open', 'update', 'reinstall', 'version', 'settings', 'history', 'menu', 'uninstall', 'help') {
+        if ($vdc -notmatch "(?m)^:cmd_$w\s*$") { throw "no :cmd_$w label" }
+    }
+}
+Check 'the release ZIP and the installer include the command' {
+    if ((Read-Text 'Build-Release.ps1') -notmatch "'video-downloader\.cmd'") { throw 'not in the release ZIP' }
+    $inst = Read-Text 'Install.ps1'
+    if ($inst -notmatch 'video-downloader\.cmd' -or $inst -notmatch 'Add-UserPath') { throw 'the installer does not install it' }
+    if ((Read-Text 'Uninstall.ps1') -notmatch "Update Video Downloader\.lnk") { throw 'the uninstaller leaves the Update shortcut' }
+}
+Check 'get.ps1 reads installed versions and compares them like the app does' {
+    $t = $null; $e = $null
+    $ga = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'get.ps1'), [ref]$t, [ref]$e)
+    foreach ($fn in 'ConvertTo-Ver', 'Get-ScriptVersion') {
+        . ([scriptblock]::Create(($ga.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq $fn }, $true) | Select-Object -First 1).Extent.Text))
+    }
+    $want = if ((Read-Text 'VideoDownloader.ps1') -match "\`$AppVersion = '([0-9.]+)'") { $Matches[1] } else { 'missing' }
+    Expect (Get-ScriptVersion (Join-Path $root 'VideoDownloader.ps1')) $want
+    Expect (Get-ScriptVersion (Join-Path $root 'no-such-file.ps1')) ''
+    if (-not ((ConvertTo-Ver '4.10') -gt (ConvertTo-Ver '4.9'))) { throw '4.10 should be newer than 4.9' }
+    if (-not ((ConvertTo-Ver 'v4.7') -gt (ConvertTo-Ver '4.6.2'))) { throw '4.7 should be newer than 4.6.2' }
+    if (-not ((ConvertTo-Ver '5') -gt (ConvertTo-Ver '4.7'))) { throw '5 should be newer than 4.7' }
+    if ($null -ne (ConvertTo-Ver '?')) { throw 'an unreadable version must not count as a version' }
 }
 
 # ---------------------------------------------------------------- versions

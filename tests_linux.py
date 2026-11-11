@@ -626,6 +626,130 @@ class InstallAndRemove(TempHome):
             shutil.rmtree(src, ignore_errors=True)
 
 
+FAKE_CURL = textwrap.dedent(r"""
+    #!/bin/sh
+    # stand-in for curl: serves the "GitHub" files from $FAKE_GH and records what was asked for
+    out=""; url=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -o) out=$2; shift 2 ;;
+            --proto|--proto-redir) shift 2 ;;
+            -*) shift ;;
+            *) url=$1; shift ;;
+        esac
+    done
+    echo "$url" >> "$FAKE_GH/requests.txt"
+    case "$url" in
+        */releases/latest) cp "$FAKE_GH/release.json" "$out" ;;
+        *) cp "$FAKE_GH/$(basename "$url")" "$out" ;;
+    esac
+""").lstrip()
+
+
+class UpdateCommand(TempHome):
+    """'video-downloader update' and the one-line install.sh: install, update ANY earlier version, or (already the
+    newest) only update yt-dlp and Deno."""
+
+    def test_update_word_runs_the_newest_setup_from_github(self):
+        seen = {}
+
+        def fake_download(url, dest, progress=None):
+            seen['url'] = url
+            with open(dest, 'w') as f:
+                f.write('exit 0\n')
+
+        def fake_run(cmd, env=None, check=False):
+            seen['cmd'], seen['env'] = cmd, env
+            return subprocess.CompletedProcess(cmd, 0)
+
+        for word, reinstall in (('update', False), ('--update', False), ('upgrade', False), ('reinstall', True)):
+            seen.clear()
+            with mock.patch.object(vd, 'download', fake_download), mock.patch.object(vd.subprocess, 'run', fake_run), \
+                    mock.patch('sys.stdout', new_callable=io.StringIO):
+                self.assertEqual(vd.main([word]), 0)
+            self.assertEqual(seen['url'], 'https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/install.sh')
+            self.assertTrue(seen['cmd'][-1].endswith('install.sh'))
+            self.assertEqual(seen['env'].get('VD_FROM_COMMAND'), '1')
+            self.assertEqual(seen['env'].get('VD_REINSTALL') == '1', reinstall, word)
+
+    def _github(self, version):
+        """A fake 'newest release' (version) built from this repository, like build-linux-release.py does."""
+        gh = os.path.join(self.home, 'gh')
+        os.makedirs(gh, exist_ok=True)
+        name = 'VideoDownloader-linux-{}.tar.gz'.format(version)
+        top = 'VideoDownloader-linux-{}'.format(version)
+        with tarfile.open(os.path.join(gh, name), 'w:gz') as t:
+            for fname in ('install.sh', 'video-downloader.py', 'VideoDownloader.user.js', 'video-downloader.png', 'README-linux.txt', 'LICENSE'):
+                t.add(os.path.join(HERE, fname), arcname=top + '/' + fname)
+        with open(os.path.join(gh, name), 'rb') as f:
+            digest = __import__('hashlib').sha256(f.read()).hexdigest()
+        with open(os.path.join(gh, 'SHA256SUMS.txt'), 'w') as f:
+            f.write('{}  {}\n'.format(digest, name))
+        with open(os.path.join(gh, 'release.json'), 'w') as f:
+            json.dump({'tag_name': version, 'assets': [{'name': name}, {'name': 'SHA256SUMS.txt'}]}, f)
+        return gh
+
+    def test_install_sh_installs_updates_and_skips(self):
+        for t in ('deno', 'ffmpeg', 'ffprobe'):
+            p = os.path.join(self.bin, t)
+            with open(p, 'w') as f:
+                f.write('#!/bin/sh\nexit 0\n')
+            os.chmod(p, 0o700)
+        fakebin = os.path.join(self.home, 'fakebin')
+        os.makedirs(fakebin)
+        with open(os.path.join(fakebin, 'curl'), 'w') as f:
+            f.write(FAKE_CURL)
+        os.chmod(os.path.join(fakebin, 'curl'), 0o700)
+        gh = self._github(vd.APP_VERSION)
+        # run install.sh on its own (as "curl ... | sh" or "video-downloader update" do), not from the download folder
+        alone = os.path.join(self.home, 'only-the-script')
+        os.makedirs(alone)
+        shutil.copy(os.path.join(HERE, 'install.sh'), alone)
+        env = dict(self.env, PATH=fakebin + os.pathsep + self.env['PATH'], FAKE_GH=gh, DISPLAY='', VD_FROM_COMMAND='1')
+        env.pop('VD_REINSTALL', None)
+        installed = os.path.join(self.env['VIDEODOWNLOADER_HOME'], 'video-downloader.py')
+
+        def setup(**extra):
+            r = subprocess.run(['sh', os.path.join(alone, 'install.sh')], env=dict(env, **extra), capture_output=True,
+                               text=True, timeout=120, check=False, stdin=subprocess.DEVNULL)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            return r.stdout
+
+        out = setup()                                                    # not installed yet
+        self.assertIn('Installing Video Downloader ' + vd.APP_VERSION, out)
+        self.assertIn('Setup (Linux)', out)
+        self.assertTrue(os.path.isfile(installed))
+
+        out = setup()                                                    # already the newest: helpers only
+        self.assertIn('You already have the newest Video Downloader', out)
+        self.assertNotIn('Setup (Linux)', out)
+        self.assertNotIn('Update (Linux)', out)
+
+        with open(installed) as f:                                       # an old version: updated, data kept
+            old = f.read().replace("APP_VERSION = '{}'".format(vd.APP_VERSION), "APP_VERSION = '4.0'")
+        with open(installed, 'w') as f:
+            f.write(old)
+        with open(os.path.join(self.data, 'settings.json')) as f:
+            before = f.read()
+        out = setup()
+        self.assertIn('Updating Video Downloader from 4.0 to ' + vd.APP_VERSION, out)
+        self.assertIn('Updating from version 4.0 to ' + vd.APP_VERSION, out)
+        self.assertIn('yt-dlp is up to date (fake)', out)                # helpers brought up to date too
+        self.assertIn('video-downloader update', out)
+        with open(installed) as f:
+            self.assertIn("APP_VERSION = '{}'".format(vd.APP_VERSION), f.read())
+        with open(os.path.join(self.data, 'settings.json')) as f:
+            self.assertEqual(f.read(), before)
+
+        out = setup(VD_REINSTALL='1')                                    # "video-downloader reinstall"
+        self.assertIn('Reinstalling version ' + vd.APP_VERSION, out)
+
+        with open(os.path.join(gh, 'requests.txt')) as f:                # only ever this project's GitHub addresses
+            for url in f.read().split():
+                self.assertTrue(url.startswith(('https://api.github.com/repos/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/',
+                                                'https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/')), url)
+
+
 class Window(TempHome):
     @unittest.skipUnless(os.environ.get('DISPLAY'), 'needs a display (run under xvfb-run)')
     def test_window_opens_and_closes(self):

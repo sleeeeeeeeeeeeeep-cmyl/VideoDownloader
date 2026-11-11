@@ -1,5 +1,5 @@
 <#
-  Video Downloader 4.6.2
+  Video Downloader 4.7
   Download videos and audio from YouTube (and most other video sites) with yt-dlp.
 
     No arguments / -App    the Video Downloader window (paste links, watch progress, pause, settings)
@@ -12,6 +12,8 @@
     -ConnectionCheck       check the connection and Wi-Fi, then open the report (Help > Check my connection)
     -NetCheck              the secure-connection part of that check only (runs by itself when a network intercepts)
     -CheckApp / -UpdateApp look for / install a new Video Downloader from GitHub (used by the window)
+
+  From any Command Prompt, PowerShell or the Run box (Windows key + R):  video-downloader update   (or: help)
     -HistoryTask <task>    a watch-history job running in the background (used by the Watch history window)
 
   Your settings live in %LOCALAPPDATA%\VideoDownloader\settings.json - change them in the Settings window.
@@ -20,7 +22,7 @@
 param([string]$Uri, [switch]$App, [switch]$AutoOpened, [switch]$RunQueue, [switch]$Settings, [switch]$Menu, [switch]$UpdateNow, [switch]$NetCheck,
       [switch]$History, [string]$HistoryTask, [string]$Path, [switch]$CheckApp, [switch]$UpdateApp, [switch]$ConnectionCheck)
 
-$AppVersion = '4.6.2'
+$AppVersion = '4.7'
 $UpdateRepo = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'   # GitHub project: new versions are announced here
 
 # ============================== DEFAULT SETTINGS ==============================
@@ -1504,7 +1506,7 @@ function Show-SettingsWindow($ownerForm = $null) {
     $updNow.Location = [System.Drawing.Point]::new(540, $y)
     $updNow.Size = [System.Drawing.Size]::new(150, 32)
     $updTip = New-Object System.Windows.Forms.ToolTip
-    $updTip.SetToolTip($updNow, 'Gets the newest Video Downloader if there is one, otherwise updates yt-dlp and Deno. Your settings and downloads are kept.')
+    $updTip.SetToolTip($updNow, 'Gets the newest Video Downloader if there is one, otherwise updates yt-dlp and Deno. Your settings and downloads are kept. Without opening the app: type  video-downloader update  in the Run box (Windows key + R).')
     $updNow.Add_Click({
         $this.Enabled = $false
         $this.Text = 'Checking...'

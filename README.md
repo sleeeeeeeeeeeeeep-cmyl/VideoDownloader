@@ -10,25 +10,45 @@ No ads, no account, no server: everything runs on your own computer, using the o
 
 ## Quick install
 
-**Windows 10 or 11:** press **Windows key + R**, paste this line, press **Enter**:
+These lines **install** Video Downloader, and if you already have it (any version), they **update** it.
 
-```text
-powershell -c "[Net.ServicePointManager]::SecurityProtocol=3072;irm https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/get.ps1|iex"
-```
+**Windows 10 or 11:**
 
-**Linux:** paste this into a terminal and press **Enter**:
+1. Copy this line. It's one long line: use the copy button at its right-hand end so you get all of it.
+
+   ```text
+   powershell -c "[Net.ServicePointManager]::SecurityProtocol=3072;irm https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/get.ps1|iex"
+   ```
+
+2. Hold the **Windows key** (the one with the Windows logo) and press **R**. A small box called **Run** opens in the
+   bottom-left corner of the screen.
+3. Click in the box, press **Ctrl+V** to paste the line, and press **Enter**.
+4. A black window opens and shows each step. When it says **All done!**, Video Downloader opens by itself and the window
+   closes after a few seconds. On a first install, the setup guide also opens in your browser.
+
+**Linux:** open a terminal (on most systems: **Ctrl+Alt+T**), paste this line (**Ctrl+Shift+V**) and press **Enter**:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/install.sh | sh
 ```
 
 Both download the newest release from this page, check it against its published SHA-256 checksums, and install it for
-your account only (no administrator password). Then add the **Download** button: install
-[Tampermonkey](https://www.tampermonkey.net) in your browser and click
+your account only (no administrator password).
+
+**Then add the Download button** (once): install [Tampermonkey](https://www.tampermonkey.net) in your browser, open
 [**install the button**](https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js)
-→ **Install**. If Tampermonkey is already there, setup opens that install page for you. (Chrome, Edge, Brave and
-Opera also need **Allow User Scripts** switched on once: see
-[Add the Download button](#add-the-download-button-to-youtube).)
+and click **Install** on the page Tampermonkey shows. If Tampermonkey is already there, setup opens that page for you.
+In Chrome, Edge, Brave and Opera, also switch on **Allow User Scripts** once:
+[Add the Download button](#add-the-download-button-to-youtube) shows exactly where.
+
+**To update later**, type this into the Run box (Windows key + R) on Windows, or into a terminal on Linux:
+
+```text
+video-downloader update
+```
+
+It works from version 4.7 on. On older versions, use the Quick install line above instead: it updates them too.
+See [Updates](#updates).
 
 Prefer to download a file instead? See [Install](#install) below.
 
@@ -80,14 +100,17 @@ This section is for Windows. On Linux, see [Linux](#linux).
 **You need** Windows 10 (version 1809 or newer) or Windows 11. No administrator rights are needed: everything is
 installed for your Windows account only.
 
-**The quickest way** is the one line in [Quick install](#quick-install): press **Windows key + R**, paste it, press
-**Enter**. It does steps 1 to 3 below for you (download, check, run Setup), and Windows doesn't show the "Windows
-protected your PC" warning because no downloaded program is opened. To do it by hand instead:
+**The quickest way** is the one line in [Quick install](#quick-install). It does steps 1 to 3 below for you
+(download, check, run Setup), and Windows doesn't show the "Windows protected your PC" warning because no downloaded
+program is opened. To do it by hand instead:
 
-1. Open the [latest release](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/releases/latest) and download
-   **`VideoDownloader-x.y.zip`**. (Not the "Source code" files, and not the extension ZIP.)
-2. Right-click the ZIP and choose **Extract All...**. Setup can't run from inside a ZIP.
-3. Open the extracted folder and double-click **`Setup.cmd`**.
+1. Open the [latest release](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/releases/latest). Scroll down to
+   **Assets** (click it if the list is folded away) and click **`VideoDownloader-x.y.zip`**, where `x.y` is the version
+   number, for example `VideoDownloader-4.7.zip`. Don't take the "Source code" files or
+   `VideoDownloader-extension-x.y.zip`.
+2. Open your **Downloads** folder, right-click the ZIP and choose **Extract All...**, then **Extract**. (On Windows 11
+   it may be under **Show more options**.) Setup can't run from inside a ZIP.
+3. In the folder that opens, open **VideoDownloader** and double-click **`Setup.cmd`** (it may show as just `Setup`).
    - If Windows shows **"Windows protected your PC"**, click **More info**, then **Run anyway**. This appears for any
      program that isn't code-signed or from the Microsoft Store.
 4. Setup takes a minute or two. It:
@@ -96,13 +119,22 @@ protected your PC" warning because no downloaded program is opened. To do it by 
      with Windows' own package manager, winget, if you don't already have them;
    - adds **Video Downloader** to your Start menu and desktop;
    - connects the browser button, and lists the app in **Settings > Apps** so it can be removed like any other program.
+   - adds the `video-downloader` command (see [The video-downloader command](#the-video-downloader-command)) and a
+     **Update Video Downloader** shortcut to the Start menu.
 5. When it finishes, the setup guide opens. It walks you through adding the Download button (next section). If
    Tampermonkey is already in your default browser, the button's install page opens too: just click **Install**.
 
 > [!TIP]
-> **Check your download (optional).** Every release includes `SHA256SUMS.txt`. In PowerShell, run
-> `Get-FileHash .\VideoDownloader-x.y.zip` and compare the long code with the line for that file. If they match,
-> your file is exactly the one GitHub built from this repository.
+> **Check your download (optional).** Every release includes `SHA256SUMS.txt`. Open PowerShell (Start menu, type
+> `powershell`, press Enter), then run these two lines, using your version number instead of `4.7`:
+>
+> ```powershell
+> cd $HOME\Downloads
+> Get-FileHash .\VideoDownloader-4.7.zip
+> ```
+>
+> Compare the long code under **Hash** with the line for that file in `SHA256SUMS.txt` (capital or small letters don't
+> matter). If they match, your file is exactly the one GitHub built from this repository.
 
 **"winget was not found"?** Open the Microsoft Store, search for **App Installer**, install or update it, then run
 Setup again.
@@ -117,20 +149,24 @@ ChromeOS's Linux, and others) and installs for your account only, so it never as
 
 ### Install on Linux
 
-The quickest way is the one line in [Quick install](#quick-install). Or download
-**`VideoDownloader-linux-x.y.tar.gz`** from the
-[latest release](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/releases/latest), extract it, open a
-terminal in the extracted folder and run:
-
-```sh
-sh install.sh
-```
-
-or do it all in one line (this downloads the newest Linux release and checks it against the release's SHA-256
-checksums before running anything from it):
+The quickest way is the one line in [Quick install](#quick-install):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/install.sh | sh
+```
+
+It downloads the newest Linux release and checks it against the release's SHA-256 checksums before running anything
+from it. (If your system has no `curl`, install it, for example `sudo apt install curl`.)
+
+To do it by hand instead, download **`VideoDownloader-linux-x.y.tar.gz`** (`x.y` is the version number) from **Assets**
+on the [latest release](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/releases/latest), then in a terminal
+(using your version number instead of `4.7`):
+
+```sh
+cd ~/Downloads
+tar -xzf VideoDownloader-linux-4.7.tar.gz
+cd VideoDownloader-linux-4.7
+sh install.sh
 ```
 
 Setup:
@@ -138,7 +174,9 @@ Setup:
 - installs [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [Deno](https://deno.com) into
   `~/.local/lib/video-downloader/bin`, plus [FFmpeg](https://ffmpeg.org) if your system doesn't have it, each checked
   against the checksum its makers publish;
-- adds **Video Downloader** to your applications menu and the `video-downloader` command to `~/.local/bin`;
+- adds **Video Downloader** to your applications menu and the `video-downloader` command to `~/.local/bin` (if a new
+  terminal says `command not found`, log out and back in once: some systems only add `~/.local/bin` to the PATH
+  then);
 - registers `ytdl://` links, so the YouTube button can hand downloads to the app;
 - if Tampermonkey is already in your default browser, opens the button's install page (click **Install**).
 
@@ -169,10 +207,15 @@ video-downloader                                   # open the window
 video-downloader https://youtu.be/...              # download as Video
 video-downloader --type audio LINK [LINK...]       # also: phone, best, edit, playlist, shrink
 video-downloader --resume                          # continue paused or waiting downloads
-video-downloader --update-now                      # update yt-dlp and Deno
+video-downloader update                            # update Video Downloader, yt-dlp and Deno
+video-downloader reinstall                         # install the newest version again (repairs it)
+video-downloader --update-now                      # update only yt-dlp and Deno
 video-downloader --connection-check                # write and open a connection report
 video-downloader --uninstall                       # remove it (asks about your settings and history)
+video-downloader --help                            # everything it can do
 ```
+
+Replace `LINK` with the video's address, for example `https://www.youtube.com/watch?v=dQw4w9WgXcQ`.
 
 In the terminal, **Ctrl+C pauses**: nothing is lost, and `--resume` (or Resume in the window) carries on.
 
@@ -183,7 +226,7 @@ In the terminal, **Ctrl+C pauses**: nothing is lost, and `--resume` (or Resume i
 | YouTube sign-in | Firefox, or an encrypted cookies.txt | Firefox, Chrome, Chromium, Brave, Edge, Opera or Vivaldi, or a cookies.txt readable only by you |
 | Watch history sorted by length | Yes | Not yet |
 | Notifications | Windows notifications | Your desktop's notifications (`notify-send`) |
-| Updates | yt-dlp and Deno weekly; the app in one click | The same |
+| Updates | `video-downloader update`, or one click in the app; yt-dlp and Deno also weekly by themselves | The same |
 
 Every download type, setting and troubleshooting tip below applies to Linux too, apart from the Windows-specific
 paths and the watch history.
@@ -195,29 +238,46 @@ The button is a small script that runs on YouTube pages. There are two ways to a
 ### Option 1: Tampermonkey (recommended, updates itself)
 
 1. Install the free [Tampermonkey](https://www.tampermonkey.net) extension for your browser (Chrome, Edge, Firefox,
-   Brave, Opera or Opera GX).
-2. **Chrome, Edge, Brave and Opera only:** right-click the Tampermonkey icon, choose **Manage extension**, and turn on
-   **Allow User Scripts** (on older versions: turn on **Developer mode** on the extensions page). Without this the
-   browser silently refuses to run the button.
+   Brave, Opera or Opera GX): open tampermonkey.net in that browser, click **Download** (or **Get from Store**), then
+   **Add to Chrome** / **Get** / **Add to Firefox** on the store page.
+2. **Chrome, Edge, Brave and Opera only:** switch on **Allow User Scripts**. Without it the browser silently refuses
+   to run the button.
+   - Click the jigsaw-piece **Extensions** icon to the right of the address bar. Next to **Tampermonkey**, click the
+     three dots (**⋮** in Chrome and Brave, **⋯** in Edge) and choose **Manage extension**. (Opera: type
+     `opera://extensions` into the address bar and click **Details** under Tampermonkey.)
+   - On the page that opens, turn on **Allow User Scripts**. If there is no such switch (older browser versions),
+     turn on **Developer mode** at the top right of the extensions page instead.
 3. Open
-   [**VideoDownloader.user.js**](https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js).
-   Tampermonkey shows its install page: click **Install**.
-4. Open any YouTube video (refresh it if it was already open). The first time you click **Download**, the browser asks
-   whether to open Video Downloader: tick **Always allow** and click **Open**.
+   [**VideoDownloader.user.js**](https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js)
+   in the same browser. Tampermonkey shows its own install page: click **Install**.
+4. Open any YouTube video (press **F5** to refresh it if it was already open). The first time you click **Download**,
+   the browser asks whether to open **Video Downloader** (Chrome and Edge: "Open Video Downloader?"; Firefox: "Choose
+   an application"). Tick the box that says **Always allow** (or **Always use**) and click the **Open** button (Chrome:
+   **Open Video Downloader**; Firefox: **Open link**).
 
 Installed this way, Tampermonkey updates the button by itself whenever a new version is published here.
-If the install link doesn't open Tampermonkey, use the guide's fallback: Tampermonkey icon, **Create a new script**,
-select everything, paste the script (Setup already put it on your clipboard) and press **Ctrl+S**.
+
+If the install link only shows the script as text instead of Tampermonkey's install page: click the Tampermonkey
+icon (under the jigsaw-piece icon in Chrome and Edge), choose **Create a new script**, press **Ctrl+A** to select
+everything in the editor, press **Ctrl+V** to paste the button script, then **Ctrl+S** to save. On Windows, Setup
+already put the script on your clipboard; otherwise copy it from the
+[same link](https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js)
+(**Ctrl+A**, **Ctrl+C**). The setup guide shows these steps with pictures: on Windows it's
+`%LOCALAPPDATA%\Programs\VideoDownloader\Guide.html` (paste that into the Run box), or **Help > Open the guide** in
+the Video Downloader window.
 
 ### Option 2: browser extension (no Tampermonkey)
 
 Every release also has `VideoDownloader-extension-x.y.zip`: the same button as a browser extension that asks for no
 permissions at all. It isn't in any add-on store yet, so it's installed by hand:
 
-- **Chrome, Edge, Brave, Opera:** unzip it, open `chrome://extensions` (or `edge://extensions`), turn on
-  **Developer mode**, click **Load unpacked** and pick the unzipped folder.
-- **Firefox:** open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on** and pick `manifest.json`
-  inside the ZIP. Firefox removes temporary add-ons when it restarts.
+- **Chrome, Edge, Brave, Opera:** right-click the ZIP and choose **Extract All...** (Linux: **Extract Here**). Type
+  `chrome://extensions` into the address bar (Edge: `edge://extensions`, Brave: `brave://extensions`, Opera:
+  `opera://extensions`), turn on **Developer mode**, click **Load unpacked** and pick the extracted folder (the one
+  that contains `manifest.json`). Keep that folder: the browser loads the button from it.
+- **Firefox:** type `about:debugging#/runtime/this-firefox` into the address bar, click **Load Temporary Add-on...**
+  and pick the ZIP file itself. Firefox removes temporary add-ons when it restarts, so you have to repeat this after
+  every restart; Tampermonkey (Option 1) doesn't have that problem.
 
 Use one or the other, not both, or you'll see two buttons.
 
@@ -336,13 +396,24 @@ sign-ins so that other programs can't read them, so for those use the steps belo
 ### Any other browser: a cookies.txt file
 
 1. Install **Get cookies.txt LOCALLY** (free and open-source) from your browser's extension store.
-2. Open a **private / incognito window** (Ctrl+Shift+N; allow the extension in private windows if asked), sign in to
-   youtube.com there, click the extension and click **Export**.
-3. **Close the private window without signing out.** (If you export from your normal window, YouTube quietly replaces
+2. Allow it in private windows: on the extension's **Manage extension** page (see step 2 of
+   [Option 1](#option-1-tampermonkey-recommended-updates-itself)), turn on **Allow in Incognito** (Edge: **Allow in
+   InPrivate**).
+3. Open a **private / incognito window** (**Ctrl+Shift+N**; Firefox: **Ctrl+Shift+P**), sign in to youtube.com there,
+   click the extension's icon and click **Export**. A file named something like `www.youtube.com_cookies.txt` is saved
+   to your Downloads folder.
+4. **Close the private window without signing out.** (If you export from your normal window, YouTube quietly replaces
    the sign-in as soon as you keep browsing there, and the file stops working.)
-4. Rename the file to `cookies.txt` and move it into `%LOCALAPPDATA%\VideoDownloader` (Help > Open the data folder).
+5. Rename the file to exactly `cookies.txt`. (Windows hides the `.txt` ending by default: if you can see it, the name
+   must be `cookies.txt`; if you can't, the name must be `cookies`. Don't end up with `cookies.txt.txt`.)
+6. Move it into the data folder: in the Video Downloader window, click **Help > Open the data folder** and drag the
+   file into the folder that opens. (Windows: `%LOCALAPPDATA%\VideoDownloader`; Linux:
+   `~/.local/share/video-downloader`.)
+7. In **Settings > Network**, check that **Where your sign-in comes from** says **A cookies.txt file**.
+8. Close the Video Downloader window and open it again.
 
-The next time Video Downloader starts, it **encrypts the file and deletes the plain copy**. The encryption (Windows
+When it starts, Video Downloader **encrypts the file and deletes the plain copy** (Windows; on Linux the file is made
+readable by your account only). The encryption (Windows
 DPAPI) is tied to your Windows account, so a copy of it is useless on any other PC or account. To stop using your
 sign-in, delete `cookies.dpapi` from that folder. If YouTube signs you out or the sign-in stops working, export a fresh
 one the same way.
@@ -353,8 +424,8 @@ one the same way.
 
 ## Your watch history, sorted by length
 
-Click **Watch history** in the window to see what you've watched, with every video's length, so you can find the long
-ones (or the Shorts) and download them.
+Windows only. Click **Watch history** in the window to see what you've watched, with every video's length, so you can
+find the long ones (or the Shorts) and download them.
 
 - **Get from YouTube** reads your most recent history (up to about 5,000 videos) straight from YouTube. This needs your
   [YouTube sign-in](#age-restricted-and-members-only-videos).
@@ -468,18 +539,46 @@ Click **Help** in the window:
 
 ## Updates
 
-- **Video Downloader itself:** when a new version is out, a blue **"Version x.y is out - update"** link appears at the
-  top right of the window. Click it and choose **Yes**: it downloads the new version from this repository's releases,
-  checks it against the published SHA-256 checksum, installs it and reopens the window. Your settings, queue and
-  history are kept. **No** shows what's new instead.
-- **Settings > Update now** does it whenever you like: it installs the newest Video Downloader if there is one,
-  otherwise it updates yt-dlp and Deno and tells you everything is up to date. The version you have is shown next to
-  the button, and in the bottom-right corner of the main window (click it to see what's new).
-- **yt-dlp and Deno:** updated every week by themselves (Settings > General), and whenever a download fails in a way
-  that an update might fix. **Help > Check for updates now** does it straight away.
-- **The YouTube button:** Tampermonkey updates it by itself if you installed it from the link above.
+Every way of updating keeps your settings, waiting downloads, history and saved sign-in, and never touches your
+downloaded files.
 
-Updating by hand also works: download the new release and run Setup again. It replaces the app and keeps your data.
+### One command, for every version
+
+| You have | Windows | Linux |
+| --- | --- | --- |
+| **4.7 or newer** | Press **Windows key + R**, type `video-downloader update`, press **Enter**. Or Start menu > **Update Video Downloader**. Or type it in Command Prompt, PowerShell or Windows Terminal. | Type `video-downloader update` in a terminal |
+| **Any older version** (4.0 to 4.6.2) | The Windows line from [Quick install](#quick-install) | The Linux line from [Quick install](#quick-install) |
+
+What it does, step by step:
+
+1. Asks GitHub which release is the newest.
+2. If yours is older, it downloads the new one, checks it against the release's SHA-256 checksums, closes the Video
+   Downloader window if it's open, installs the new version over the old one and opens the window again.
+3. Updates yt-dlp and Deno too.
+4. If you already have the newest version, it only does step 3 and tells you everything is up to date.
+
+The command always runs the newest update steps from this repository (`get.ps1` on Windows, `install.sh` on Linux)
+rather than ones stored on your computer, so **the same command keeps working for every future version**.
+
+Something broken? `video-downloader reinstall` installs the newest version again even if you already have it.
+
+> [!NOTE]
+> On Windows, the command works in windows opened **after** the install. If a Command Prompt or PowerShell window says
+> `'video-downloader' is not recognized`, close it and open a new one. The Run box and the Start menu shortcut work
+> straight away.
+
+### Other ways
+
+- **In the app:** when a new version is out, a blue **"Version x.y is out - update"** link appears at the top right of
+  the window. Click it and choose **Yes** (or **No** to read what's new first). **Settings > Update now** does the
+  same whenever you like. The version you have is shown next to that button and in the bottom-right corner of the
+  main window (click it to see what's new).
+- **yt-dlp and Deno** (the parts that talk to YouTube): updated every week by themselves (Settings > General), and
+  whenever a download fails in a way that an update might fix. **Help > Check for updates now** does it straight away.
+- **The YouTube button:** Tampermonkey updates it by itself if you installed it from the link above. (The browser
+  extension in Option 2 doesn't: load the new ZIP the same way.)
+- **By hand:** download the new release and run `Setup.cmd` (Windows) or `sh install.sh` (Linux) as in
+  [Install](#install). It updates the existing installation.
 
 ## Troubleshooting
 
@@ -489,8 +588,10 @@ Brave and Opera, check that **Allow User Scripts** (or Developer mode) is on. On
 in the bottom-right corner. Still nothing? Try the [browser extension](#option-2-browser-extension-no-tampermonkey).
 
 **I click Download but nothing happens.**
-The browser may have blocked the "Open Video Downloader?" question: look for a small icon in the address bar. Running
-Setup again reconnects the button. You can always paste the link into the window instead.
+The browser may have blocked the "Open Video Downloader?" question: look for a small crossed-out icon at the right end
+of the address bar, click it and allow it. If that doesn't help, run `video-downloader reinstall` (Run box or
+terminal; on versions before 4.7, the [Quick install](#quick-install) line), which reconnects the button. You can
+always paste the link into the window instead.
 
 **A download failed.**
 Double-click the red line. Common reasons:
@@ -501,7 +602,7 @@ Double-click the red line. Common reasons:
 | It is age-restricted | Set up your [YouTube sign-in](#age-restricted-and-members-only-videos). |
 | It is members-only | It needs the sign-in of an account that is a member of the channel. |
 | YouTube Restricted Mode is switched on | Your network, a parental filter or a school/work account hides the video. The app can't change that. |
-| Try again later | Usually YouTube changed something. Click **Help > Check for updates now**, then try again. |
+| Try again later | Usually YouTube changed something. Run `video-downloader update` (or click **Help > Check for updates now**), then try again. |
 
 **"Waiting for the internet" or "YouTube is blocking downloads for a while".**
 Your downloads are safe in the queue and retry by themselves. Turn off any VPN and check your Wi-Fi. YouTube's block
@@ -518,14 +619,21 @@ Usually it's the connection: VPNs, a busy network, or YouTube limiting speed. Tr
 Parallel download pieces: 8, and run **Help > Check my connection**.
 
 **"The settings window couldn't open: Access to the path ... is denied".**
-This was a bug in version 4.2. Version 4.4 and newer repair it automatically the first time they start.
+This was a bug in version 4.2. Update (see [Updates](#updates)): version 4.4 and newer repair it automatically the
+first time they start.
+
+**`'video-downloader' is not recognized` (Windows) or `command not found` (Linux).**
+Windows: close the Command Prompt or PowerShell window and open a new one, or use the Run box (Windows key + R). If it
+still isn't found you have a version older than 4.7: update with the [Quick install](#quick-install) line once.
+Linux: log out and back in once, or run it as `~/.local/bin/video-downloader`.
 
 **Where are the logs?**
 **Help > Open the data folder**: `history.log` (every download), `runner.log` (recent downloads in detail) and
 `error.log`. Logs are trimmed automatically and connection reports are deleted after 30 days.
 
 **Still stuck?** [Open an issue](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/issues/new/choose) with
-your Windows version, Video Downloader version and the error message. Never paste your cookies.txt.
+your Windows or Linux version, your Video Downloader version (`video-downloader version`, or the bottom-right corner of
+the window) and the error message. Never paste your cookies.txt.
 
 ## Privacy and security
 
@@ -585,14 +693,35 @@ these files after the automatic checks pass, and the checksums let you confirm y
 | --- | --- |
 | `%LOCALAPPDATA%\Programs\VideoDownloader` | The app |
 | `%LOCALAPPDATA%\VideoDownloader` | Your settings, queue, download history, logs, watch history and encrypted sign-in |
-| Start menu and desktop | Video Downloader shortcuts |
+| Start menu and desktop | Video Downloader shortcuts, and Start menu > Update Video Downloader |
+| `%LOCALAPPDATA%\Programs\VideoDownloader\bin` added to your PATH | The `video-downloader` command (your account's PATH only) |
 | `HKEY_CURRENT_USER\Software\Classes\ytdl` | The `ytdl://` link handler the button uses |
 | Settings > Apps | The uninstall entry |
 | winget | yt-dlp, FFmpeg and Deno, if you didn't have them |
 
 ## Advanced: text version, command line and links
 
-**Text version.** For people who prefer typing, run:
+### The video-downloader command
+
+Type these into the Run box (Windows key + R), Command Prompt, PowerShell or Windows Terminal. On Linux, type them
+into a terminal (Linux also downloads from the terminal: see [Using it on Linux](#using-it-on-linux)).
+
+| Command | What it does |
+| --- | --- |
+| `video-downloader` | Open the Video Downloader window |
+| `video-downloader update` | Update Video Downloader, yt-dlp and Deno to the newest versions (see [Updates](#updates)) |
+| `video-downloader reinstall` | Install the newest version again, even if you already have it (repairs a broken install) |
+| `video-downloader version` | Show which version you have |
+| `video-downloader settings` | Open the settings window (Windows) |
+| `video-downloader history` | Open your watch history (Windows) |
+| `video-downloader menu` | The text version, below (Windows) |
+| `video-downloader uninstall` | Remove Video Downloader (Windows; on Linux: `video-downloader --uninstall`) |
+| `video-downloader help` | List these |
+
+`--update`, `-update` and `/update` work too, the same for the others.
+
+**Text version.** For people who prefer typing, open Command Prompt (Start menu, type `cmd`, press Enter) and run
+`video-downloader menu`. On versions before 4.7:
 
 ```text
 powershell -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Programs\VideoDownloader\VideoDownloader.ps1" -Menu
@@ -601,7 +730,7 @@ powershell -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Programs\VideoDownloade
 Paste links, then pick a letter: **V** video, **P** phone, **4** best, **E** editor, **A** audio, **C** clip,
 **L** playlist, **S** shrink, **T** settings, **U** update, **O** open the Videos folder.
 
-**Command-line switches** of `VideoDownloader.ps1`:
+**Command-line switches** of `VideoDownloader.ps1` (what the `video-downloader` command runs):
 
 | Switch | What it does |
 | --- | --- |
@@ -624,9 +753,13 @@ Paste links, then pick a letter: **V** video, **P** phone, **4** best, **E** edi
 
 ## Uninstall
 
-Windows **Settings > Apps > Installed apps > Video Downloader > Uninstall**. It asks whether to also delete your
-settings, history, waiting downloads and saved sign-in, or keep them for a future reinstall. Your downloaded videos
-are never touched.
+**Windows:** open **Settings > Apps > Installed apps** (Windows 10: **Settings > Apps > Apps & features**), find
+**Video Downloader**, click **⋯** (or the app itself) and choose **Uninstall**. Or type `video-downloader uninstall`
+into the Run box. It asks whether to also delete your settings, history, waiting downloads and saved sign-in, or keep
+them for a future reinstall. Your downloaded videos are never touched.
+
+**Linux:** run `video-downloader --uninstall` in a terminal (add `--delete-data` to also delete your settings and
+history without being asked).
 
 Two things are left for you to remove if you like: the Download button (Tampermonkey's dashboard, or the extension),
 and the helper programs yt-dlp, FFmpeg and Deno (in Settings > Apps; other programs may use them).
@@ -645,9 +778,10 @@ and the helper programs yt-dlp, FFmpeg and Deno (in Settings > Apps; other progr
 | `extension-manifest.json`, `extension-icon.png` | The button as a browser extension |
 | `Tests.ps1` | Automatic checks (run by GitHub on Windows for every upload) |
 | `Build-Release.ps1` | Builds the release ZIPs and SHA-256 checksums |
-| `get.ps1` | The Windows one-line install: downloads the newest release, checks its SHA-256 and runs its Setup |
+| `get.ps1` | The Windows one-line install and update: downloads the newest release, checks its SHA-256 and runs its Setup (or, if you already have the newest, updates yt-dlp and Deno) |
+| `video-downloader.cmd` | The Windows `video-downloader` command; `update` runs the newest `get.ps1` from this repository |
 | `video-downloader.py` | The whole Linux app: window (Tk), background downloader, settings, updates, installer (Python 3.8+, standard library only) |
-| `install.sh` | Linux setup: runs `video-downloader.py --install`, or downloads and checks the newest release first |
+| `install.sh` | Linux setup and update: runs `video-downloader.py --install`, or downloads and checks the newest release first; `video-downloader update` runs the newest copy from this repository |
 | `README-linux.txt`, `video-downloader.png` | The Linux download's quick guide and icon |
 | `tests_linux.py`, `ruff.toml` | The Linux checks (run by GitHub on Ubuntu for every upload) |
 | `build-linux-release.py` | Builds `VideoDownloader-linux-x.y.tar.gz` and adds it to the checksums |
@@ -679,11 +813,18 @@ Run them with `python3 tests_linux.py` (use `xvfb-run -a python3 tests_linux.py`
 
 1. Change the version number in four places, which must match: `$AppVersion` in `VideoDownloader.ps1`,
    `APP_VERSION` in `video-downloader.py`, `@version` in `VideoDownloader.user.js` and `"version"` in
-   `extension-manifest.json`. Add a section to `CHANGELOG.md`.
-2. Upload the changed files and wait for the green tick on the **Actions** tab. A red X means something is broken.
-3. Create a release whose tag is the version number (for example `4.7`). Don't attach anything: GitHub builds
-   `VideoDownloader-x.y.zip`, `VideoDownloader-linux-x.y.tar.gz`, the extension ZIP and `SHA256SUMS.txt` and
-   attaches them within a few minutes. "Update now" in both apps picks the new version up from there.
+   `extension-manifest.json`. Add a `## x.y` section to the top of `CHANGELOG.md`.
+2. Upload the changed files: on the repository's main page click **Add file > Upload files**, drag the files in and
+   click **Commit changes**. Files that live in a folder (such as `.github/workflows/ci.yml`) must be uploaded from
+   inside that folder: open the folder on GitHub first, then **Add file > Upload files**.
+3. Open the **Actions** tab and wait for the newest run to finish (a few minutes). A green tick means every check
+   passed; a red X means something is broken: click it to see which check failed, and don't publish a release yet.
+4. Click **Releases** (right-hand side of the main page) > **Draft a new release** > **Choose a tag**, type the version
+   number exactly as in step 1 (for example `4.7`, without a `v`), click **Create new tag**, give it a title, and click
+   **Publish release**. Don't attach any files: within a few minutes GitHub builds `VideoDownloader-x.y.zip`,
+   `VideoDownloader-linux-x.y.tar.gz`, the extension ZIP and `SHA256SUMS.txt` and attaches them (watch the
+   **Actions** tab). From then on, the Quick install lines, `video-downloader update` and "Update now" all install the
+   new version.
 
 ## Please use responsibly
 

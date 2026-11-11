@@ -9,7 +9,9 @@ The same YouTube Download button as the Windows version sends ytdl:// links here
     video-downloader --uri ytdl://...     a link from the Download button (added to the queue)
     video-downloader --settings           the settings window
     video-downloader --resume             continue paused downloads in this terminal
-    video-downloader --update-now         update yt-dlp and Deno now
+    video-downloader update               update Video Downloader, yt-dlp and Deno to the newest versions
+    video-downloader reinstall            install the newest version again (repairs a broken install)
+    video-downloader --update-now         update only yt-dlp and Deno
     video-downloader --connection-check   check the connection and open the report
     video-downloader --install            install from an extracted release folder (install.sh runs this)
     video-downloader --uninstall          remove Video Downloader (asks about your settings and history)
@@ -43,7 +45,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-APP_VERSION = '4.6.2'
+APP_VERSION = '4.7'
 APP_NAME = 'Video Downloader'
 UPDATE_REPO = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'
 PROJECT_URL = 'https://github.com/' + UPDATE_REPO
@@ -52,6 +54,9 @@ BUTTON_GUIDE_URL = PROJECT_URL + '#add-the-download-button-to-youtube'
 CHANGELOG_URL = PROJECT_URL + '/blob/main/CHANGELOG.md'
 RELEASES_PAGE = PROJECT_URL + '/releases/latest'
 USERSCRIPT_URL = 'https://raw.githubusercontent.com/' + UPDATE_REPO + '/main/VideoDownloader.user.js'
+# "video-downloader update" runs the newest setup script straight from GitHub, so the update steps of every future
+# version are the ones used, whichever version is installed now
+INSTALL_SH_URL = 'https://raw.githubusercontent.com/' + UPDATE_REPO + '/main/install.sh'
 
 # yt-dlp would also read settings files and plugins from other folders; another program could put commands there
 # (for example --exec), so only the options this app gives it are used.
@@ -1391,6 +1396,32 @@ def install_app_update():
         shutil.rmtree(work, ignore_errors=True)
 
 
+def self_update(reinstall=False):
+    """'video-downloader update': fetch the newest install.sh from GitHub and run it. It finds the newest release,
+    checks its SHA-256 and installs it over this one (or, if this is already the newest, updates yt-dlp and Deno)."""
+    if reinstall:
+        print('Reinstalling the newest Video Downloader. Your settings, queue and history are kept.')
+    else:
+        print('Updating Video Downloader, yt-dlp and Deno to their newest versions...')
+    work = tempfile.mkdtemp(prefix='vd-update-')
+    try:
+        script = os.path.join(work, 'install.sh')
+        try:
+            download(INSTALL_SH_URL, script)
+        except (OSError, ValueError) as e:
+            print('Could not reach GitHub ({}). Check your connection and try again.'.format(e))
+            return 1
+        env = dict(os.environ, VD_FROM_COMMAND='1')
+        if reinstall:
+            env['VD_REINSTALL'] = '1'
+        else:
+            env.pop('VD_REINSTALL', None)
+        sh = shutil.which('sh') or '/bin/sh'
+        return subprocess.run([sh, script], env=env, check=False).returncode
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 # ============================================================ connection check
 def connection_check():
     out = ['Video Downloader {} - connection check, {:%Y-%m-%d %H:%M}'.format(APP_VERSION, datetime.datetime.now()),
@@ -1637,14 +1668,42 @@ def has_tampermonkey(browser=None):
     return False
 
 
+def installed_version():
+    """The version already installed ('' if none, '?' if it can't be read). Any earlier version can be updated."""
+    path = os.path.join(P.app_home, 'video-downloader.py')
+    if not os.path.isfile(path):
+        return ''
+    try:
+        with open(path, encoding='utf-8') as f:
+            m = re.search(r"^APP_VERSION = '([0-9.]+)'", f.read(), re.M)
+        return m.group(1) if m else '?'
+    except OSError:
+        return '?'
+
+
 def install(quiet=False):
     src_dir = os.path.dirname(os.path.abspath(__file__))
+    previous = '' if os.path.abspath(src_dir) == os.path.abspath(P.app_home) else installed_version()
+    updating = bool(previous)
     print('\n  ==============================================')
-    print('        VIDEO DOWNLOADER {}  -  Setup (Linux)'.format(APP_VERSION))
+    print('        VIDEO DOWNLOADER {}  -  {} (Linux)'.format(APP_VERSION, 'Update' if updating else 'Setup'))
     print('  ==============================================')
-    print('  This installs Video Downloader for your account only (no administrator password needed).\n')
+    if not updating:
+        print('  This installs Video Downloader for your account only (no administrator password needed).\n')
+    elif previous == APP_VERSION:
+        print('  Reinstalling version {}. Your settings, queue and history are kept.\n'.format(APP_VERSION))
+    else:
+        print('  Updating from version {} to {}. Your settings, queue and history are kept.\n'.format(previous, APP_VERSION))
     print('  1/4  Helper programs (yt-dlp, Deno, FFmpeg)')
     install_tools()
+    if updating and not quiet:
+        # an update also brings the parts that talk to YouTube up to date (not during the window's own quiet
+        # "Update now", which may be in the middle of a download that is using them)
+        STATE.interactive = True
+        P.ensure()
+        init_tools()
+        update_tools(force=True)
+        STATE.interactive = False
     print('\n  2/4  Copying Video Downloader')
     os.makedirs(P.app_home, exist_ok=True)
     stop_window()
@@ -1671,8 +1730,10 @@ def install(quiet=False):
         subprocess.run(['update-desktop-database', APPS_DIR], capture_output=True, check=False)
     print('    OK  "Video Downloader" is in your applications menu, and ytdl:// links open it')
     print('\n  4/4  The Download button for YouTube')
-    have_tm = not quiet and has_tampermonkey()
-    if have_tm:
+    have_tm = not quiet and not updating and has_tampermonkey()
+    if updating:
+        print('    OK  Nothing to do: the button you already have keeps working (Tampermonkey updates it by itself).')
+    elif have_tm:
         print('    OK  Tampermonkey is in your browser: the button\'s install page opens in a moment - click Install there.')
     else:
         print('    Install Tampermonkey in your browser (https://www.tampermonkey.net), then open this link and click Install:')
@@ -1685,9 +1746,13 @@ def install(quiet=False):
         print('        (Downloading from the terminal works without it:  video-downloader LINK)')
     if os.environ.get('PATH', '').split(os.pathsep).count(os.path.dirname(LAUNCHER)) == 0:
         print('\n    Note: {} is not on your PATH yet; it usually is after you log out and back in.'.format(os.path.dirname(LAUNCHER)))
-    print('\n  All done! Open "Video Downloader" from your applications menu.\n')
+    if updating:
+        print('\n  All done! You now have Video Downloader {}.'.format(APP_VERSION))
+    else:
+        print('\n  All done! Open "Video Downloader" from your applications menu.')
+    print('  To update it again later, run:  video-downloader update\n')
     if not quiet:
-        if sys.stdout.isatty():
+        if sys.stdout.isatty() and not updating:
             open_path(USERSCRIPT_URL if have_tm else BUTTON_GUIDE_URL)
     else:
         subprocess.Popen([sys.executable, '-I', os.path.join(P.app_home, 'video-downloader.py'), '--app'], stdin=subprocess.DEVNULL,
@@ -2285,7 +2350,9 @@ def handle_uri(uri):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog='video-downloader', description='Download videos and audio with yt-dlp.', allow_abbrev=False)
+    ap = argparse.ArgumentParser(prog='video-downloader', description='Download videos and audio with yt-dlp.', allow_abbrev=False,
+                                 epilog='Update Video Downloader, yt-dlp and Deno:  video-downloader update   '
+                                        '(reinstall: video-downloader reinstall)')
     ap.add_argument('urls', nargs='*', help='links to download in this terminal')
     ap.add_argument('--type', default='video', choices=[m for m in MODES if m != 'clip'], help='download type for links given here')
     ap.add_argument('--uri', help='a ytdl:// link from the YouTube Download button')
@@ -2294,7 +2361,7 @@ def main(argv=None):
     ap.add_argument('--settings', action='store_true', help='open the settings window')
     ap.add_argument('--run-queue', action='store_true', help=argparse.SUPPRESS)
     ap.add_argument('--resume', action='store_true', help='continue paused or waiting downloads in this terminal')
-    ap.add_argument('--update-now', action='store_true', help='update yt-dlp and Deno now')
+    ap.add_argument('--update-now', action='store_true', help='update only yt-dlp and Deno now (to update everything: video-downloader update)')
     ap.add_argument('--connection-check', action='store_true', help='check the connection and open the report')
     ap.add_argument('--install', action='store_true', help='install from an extracted release folder')
     ap.add_argument('--quiet', action='store_true', help=argparse.SUPPRESS)
@@ -2302,6 +2369,11 @@ def main(argv=None):
     ap.add_argument('--delete-data', action='store_true', help='with --uninstall: also delete settings and history')
     ap.add_argument('--version', action='version', version=APP_NAME + ' ' + APP_VERSION)
     raw = list(sys.argv[1:] if argv is None else argv)
+    # plain-word commands, so "video-downloader update" works like on Windows (and stays the same in every version)
+    if len(raw) == 1 and raw[0].lower().lstrip('-') in ('update', 'upgrade', 'reinstall'):
+        return self_update(reinstall=raw[0].lower().lstrip('-') == 'reinstall')
+    if len(raw) == 1 and raw[0].lower() in ('help', 'version'):
+        raw = ['--' + raw[0].lower()]
     # a ytdl:// link comes from a web page: it may carry nothing but the link itself
     is_link = any(x == '--uri' or x.startswith('--uri=') for x in raw)
     if is_link and not ((len(raw) == 2 and raw[0] == '--uri') or (len(raw) == 1 and raw[0].startswith('--uri='))):

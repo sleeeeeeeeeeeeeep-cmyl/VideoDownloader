@@ -1,6 +1,8 @@
 <#
-  Video Downloader - installer.  Run it with Setup.cmd (double-click).
-  Installs for the current Windows user only; no administrator rights needed.
+  Video Downloader - installer.  Run it with Setup.cmd (double-click), the one-line install, or
+  "video-downloader update".  Installs for the current Windows user only; no administrator rights needed.
+  Run over an existing installation it UPDATES it: your settings, queue and history are kept, the guide isn't
+  opened again, and yt-dlp and Deno are brought up to date as well.
 #>
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Coloured text for the person watching the console window')]
 param([switch]$Quiet)
@@ -19,6 +21,15 @@ $PsExe    = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.ex
 $Conhost  = Join-Path $env:WINDIR 'System32\conhost.exe'
 $Programs = [Environment]::GetFolderPath('Programs')
 $Desktop  = [Environment]::GetFolderPath('Desktop')
+$BinDir   = Join-Path $Dest 'bin'                     # holds video-downloader.cmd; added to your PATH
+
+# already installed? Then this is an update (works over any earlier version)
+$Previous = ''
+if (Test-Path -LiteralPath $Script) {
+    $Previous = '?'
+    try { if ((Get-Content -LiteralPath $Script -Raw) -match "\`$AppVersion = '([0-9.]+)'") { $Previous = $Matches[1] } } catch { Write-Debug $_ }
+}
+$IsUpdate = [bool]$Previous
 
 function Step([string]$t)  { Write-Host "`n  $t" -ForegroundColor Cyan }
 function Good([string]$t)  { Write-Host "    OK  $t" -ForegroundColor Green }
@@ -27,8 +38,12 @@ function Bad([string]$t)   { Write-Host "    !!  $t" -ForegroundColor Yellow }
 function Finish([int]$code) {
     if (-not $Quiet) {
         Write-Host ''
-        if ($code -eq 0) { Write-Host '  This window closes by itself in 15 seconds.' -ForegroundColor DarkGray; Start-Sleep -Seconds 15 }
-        else { try { Read-Host '  Press Enter to close' | Out-Null } catch { Start-Sleep -Seconds 60 } }
+        # (started by "video-downloader update" in a terminal: that window stays open by itself)
+        if ($code -eq 0 -and -not $env:VD_FROM_COMMAND) {
+            $wait = if ($IsUpdate) { 8 } else { 15 }
+            Write-Host "  This window closes by itself in $wait seconds." -ForegroundColor DarkGray; Start-Sleep -Seconds $wait
+        }
+        elseif ($code -ne 0) { try { Read-Host '  Press Enter to close' | Out-Null } catch { Start-Sleep -Seconds 60 } }
     }
     exit $code
 }
@@ -42,11 +57,17 @@ trap {
 
 Write-Host ''
 Write-Host '  ==============================================' -ForegroundColor Red
-Write-Host "        VIDEO DOWNLOADER $AppVersion  -  Setup" -ForegroundColor White
+if ($IsUpdate) { Write-Host "        VIDEO DOWNLOADER $AppVersion  -  Update" -ForegroundColor White }
+else { Write-Host "        VIDEO DOWNLOADER $AppVersion  -  Setup" -ForegroundColor White }
 Write-Host '  ==============================================' -ForegroundColor Red
-Write-Host '  This installs Video Downloader for your Windows account.'
-Write-Host '  It also installs three free helper programs if you do not have them:'
-Write-Host '    yt-dlp (does the downloading), FFmpeg (joins video + sound), Deno (needed by YouTube).'
+if ($IsUpdate) {
+    if ($Previous -eq $AppVersion) { Write-Host "  Reinstalling version $AppVersion. Your settings, queue and history are kept." }
+    else { Write-Host "  Updating from version $Previous to $AppVersion. Your settings, queue and history are kept." }
+} else {
+    Write-Host '  This installs Video Downloader for your Windows account.'
+    Write-Host '  It also installs three free helper programs if you do not have them:'
+    Write-Host '    yt-dlp (does the downloading), FFmpeg (joins video + sound), Deno (needed by YouTube).'
+}
 
 $ButtonUrl = 'https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js'
 
@@ -129,6 +150,18 @@ if ($missing.Count) {
         else { Bad "$($t.Name) may not have installed. Video Downloader will try again the first time it downloads." }
     }
 }
+# an update also brings the parts that talk to YouTube up to date (not during the window's own quiet
+# "Update now", which may be in the middle of a download that is using them)
+if ($IsUpdate -and -not $Quiet -and $winget) {
+    Write-Host '    ..  Checking yt-dlp and Deno for updates' -ForegroundColor Yellow
+    foreach ($id in 'yt-dlp.yt-dlp', 'DenoLand.Deno') {
+        $ErrorActionPreference = 'Continue'
+        & $winget.Source upgrade --id $id -e --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity | Out-Host
+        $ErrorActionPreference = 'Stop'
+    }
+    try { Set-Content -LiteralPath (Join-Path $Data 'last-update.txt') -Value (Get-Date -Format o) } catch { Write-Debug $_ }
+    Good 'yt-dlp and Deno checked (updated where a newer version was out)'
+}
 
 # ---------- 2. copy the app ----------
 Step '2/4  Copying Video Downloader'
@@ -144,7 +177,12 @@ foreach ($f in 'VideoDownloader.ps1', 'VideoDownloader.ico', 'VideoDownloader.us
     if ($from -ne (Join-Path $Dest $f)) { Copy-Item -LiteralPath $from -Destination $Dest -Force }
 }
 Write-Guide -template (Join-Path $Src 'Guide.html') -out (Join-Path $Dest 'Guide.html') -userScript (Join-Path $Src 'VideoDownloader.user.js') -version $AppVersion
-Get-ChildItem -LiteralPath $Dest -File | ForEach-Object { try { Unblock-File -LiteralPath $_.FullName } catch { Write-Debug $_ } }
+# the "video-downloader" command (in the download it sits next to Install.ps1; installed, it lives in bin\)
+$cmdFrom = @((Join-Path $Src 'video-downloader.cmd'), (Join-Path $Src 'bin\video-downloader.cmd')) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $cmdFrom) { throw 'Setup is missing a file: video-downloader.cmd. Download Video Downloader again and unzip ALL files before running Setup.' }
+New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+if ($cmdFrom -ne (Join-Path $BinDir 'video-downloader.cmd')) { Copy-Item -LiteralPath $cmdFrom -Destination $BinDir -Force }
+Get-ChildItem -LiteralPath $Dest -File -Recurse | ForEach-Object { try { Unblock-File -LiteralPath $_.FullName } catch { Write-Debug $_ } }
 Good "Installed to $Dest"
 
 # ---------- 3. connect the browser button + shortcuts ----------
@@ -174,6 +212,37 @@ Add-Shortcut -path (Join-Path $Programs 'Video Downloader.lnk') -extra '-App' -d
 Good 'Start menu: Video Downloader'
 Add-Shortcut -path (Join-Path $Desktop 'Video Downloader.lnk') -extra '-App' -desc 'Download videos and audio'
 Good 'Desktop: Video Downloader'
+# Start menu: "Update Video Downloader" runs the update command in a window you can watch
+$up = $wsh.CreateShortcut((Join-Path $Programs 'Update Video Downloader.lnk'))
+$up.TargetPath = Join-Path $BinDir 'video-downloader.cmd'
+$up.Arguments = 'update'
+$up.WorkingDirectory = $Dest
+$up.IconLocation = "$Icon,0"
+$up.Description = 'Update Video Downloader, yt-dlp and Deno to the newest versions'
+$up.Save()
+Good 'Start menu: Update Video Downloader'
+
+# the "video-downloader" command: add bin\ to YOUR PATH (your account only). The PATH value is edited in the
+# registry directly so entries such as %USERPROFILE%\... keep working (they are stored unexpanded).
+function Add-UserPath {
+    [OutputType([bool])]
+    param([string]$dir)
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+    if (-not $key) { $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment') }
+    try {
+        $cur = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $parts = @($cur -split ';' | Where-Object { $_ -ne '' })
+        foreach ($p in $parts) { if ([Environment]::ExpandEnvironmentVariables($p).TrimEnd('\') -ieq $dir.TrimEnd('\')) { return $false } }
+        $kind = if ($cur) { $key.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
+        $key.SetValue('Path', (($parts + $dir) -join ';'), $kind)
+    } finally { $key.Close() }
+    # tell Windows (the Run box, new terminals) that the PATH changed: setting any user variable announces it
+    [Environment]::SetEnvironmentVariable('VideoDownloaderSetup', '1', 'User')
+    [Environment]::SetEnvironmentVariable('VideoDownloaderSetup', $null, 'User')
+    return $true
+}
+if (Add-UserPath $BinDir) { Good 'Command added: video-downloader (works in the Run box and in new terminal windows)' }
+else { Good 'Command ready: video-downloader' }
 
 # an entry in Settings > Apps so it can be removed like any other program
 $un = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\VideoDownloader'
@@ -193,21 +262,26 @@ Good 'Listed in Settings > Apps (uninstall from there)'
 # ---------- 4. the browser part ----------
 Step '4/4  The Download button for YouTube'
 $haveTm = $false
-if (-not $Quiet) { $haveTm = Test-Tampermonkey }
-if ($haveTm) {
+if (-not $Quiet -and -not $IsUpdate) { $haveTm = Test-Tampermonkey }
+if ($IsUpdate) {
+    Good 'Nothing to do: the button you already have keeps working (Tampermonkey updates it by itself).'
+} elseif ($haveTm) {
     Good 'Tampermonkey is in your browser: the button''s install page opens in a moment - click Install there.'
-} elseif (-not $Quiet) {   # (an automatic update shouldn't overwrite what you have on the clipboard)
+} elseif (-not $Quiet) {   # (an update shouldn't overwrite what you have on the clipboard)
     try {
         Set-Clipboard -Value (Get-Content -LiteralPath (Join-Path $Dest 'VideoDownloader.user.js') -Raw -Encoding UTF8)
         Good 'The button script is copied to your clipboard'
     } catch { Bad 'Could not copy to the clipboard - use the Copy button in the guide instead.' }
 }
-if (-not $Quiet -and -not $haveTm) { Note 'The guide that just opened shows the 3 quick steps to add the button to your browser.' }
+if (-not $Quiet -and -not $haveTm -and -not $IsUpdate) { Note 'The guide that just opened shows the 3 quick steps to add the button to your browser.' }
 
 Write-Host ''
-Write-Host '  All done!  Video Downloader is in your Start menu.' -ForegroundColor Green
+if ($IsUpdate) { Write-Host "  All done!  You now have Video Downloader $AppVersion." -ForegroundColor Green }
+else { Write-Host '  All done!  Video Downloader is in your Start menu.' -ForegroundColor Green }
+Write-Host '  To update it again later, type  video-downloader update  in the Run box (Windows key + R)' -ForegroundColor DarkGray
+Write-Host '  or use "Update Video Downloader" in the Start menu.' -ForegroundColor DarkGray
 if (-not $Quiet) {
-    try { Start-Process (Join-Path $Dest 'Guide.html') } catch { Write-Debug $_ }
+    if (-not $IsUpdate) { try { Start-Process (Join-Path $Dest 'Guide.html') } catch { Write-Debug $_ } }
     if ($haveTm) { Start-Sleep -Seconds 2; try { Start-Process $ButtonUrl } catch { Write-Debug $_ } }   # (in front of the guide)
     try { Start-Process -FilePath $Conhost -ArgumentList ('--headless "{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -App' -f $PsExe, $Script) } catch { Write-Debug $_ }
 }

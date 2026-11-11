@@ -1,11 +1,14 @@
 #!/bin/sh
-# Video Downloader for Linux - setup.
+# Video Downloader for Linux - setup AND update.
 #
 #   From the extracted download:   sh install.sh
 #   Or straight from GitHub:       curl -fsSL https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/install.sh | sh
+#   Already installed (4.7+):      video-downloader update      (runs this same file, fetched fresh from GitHub)
 #
 # Installs for your account only (no sudo). The second way downloads the newest Linux release first and checks it
-# against the release's SHA-256 checksums before running anything from it.
+# against the release's SHA-256 checksums before running anything from it. Run over ANY earlier version it updates
+# it (settings, queue and history are kept) and updates yt-dlp and Deno; if you already have the newest version, only
+# yt-dlp and Deno are updated (VD_REINSTALL=1 installs it again anyway).
 # Remove it again with:  video-downloader --uninstall
 #
 # Everything is inside main(), which is only called on the very last line: if the download of this script is cut
@@ -66,6 +69,34 @@ names = [a["name"] for a in json.load(open(sys.argv[1])).get("assets", [])]
 print(next((n for n in names if re.match(r"^VideoDownloader-linux-[0-9.]+\.tar\.gz$", n)), ""))
 ' "$work/release.json")
     [ -n "$tarball" ] || fail "the newest release has no Linux download yet. See https://github.com/$REPO/releases"
+
+    # ---- already installed? (any earlier version is simply updated; the newest one only needs its helpers updated)
+    installed="${VIDEODOWNLOADER_HOME:-$HOME/.local/lib/video-downloader}/video-downloader.py"
+    latest=$("$PY" -I -c 'import json, sys; print(str(json.load(open(sys.argv[1])).get("tag_name", "")).lstrip("vV"))' "$work/release.json")
+    have=""
+    if [ -f "$installed" ]; then
+        have=$("$PY" -I -c '
+import re, sys
+m = re.search(r"^APP_VERSION = .([0-9.]+).", open(sys.argv[1], encoding="utf-8").read(), re.M)
+print(m.group(1) if m else "?")
+' "$installed" 2>/dev/null || echo "?")
+    fi
+    current=$("$PY" -I -c '
+import re, sys
+def v(t):
+    return tuple(int(x) for x in t.split(".")) if re.match(r"^[0-9]+(\.[0-9]+)*$", t) else None
+a, b = v(sys.argv[1]), v(sys.argv[2])
+print(1 if a and b and a >= b else 0)
+' "$have" "$latest")
+    if [ "$current" = 1 ] && [ -z "${VD_REINSTALL:-}" ]; then
+        say "You already have the newest Video Downloader ($have). Checking yt-dlp and Deno for updates..."
+        "$PY" -I "$installed" --update-now || true
+        say "Everything is up to date. (To install this version again anyway: video-downloader reinstall)"
+        return 0
+    fi
+    if [ -n "$have" ] && [ "$have" = "$latest" ]; then say "Reinstalling Video Downloader $latest..."
+    elif [ -n "$have" ]; then say "Updating Video Downloader from $have to $latest..."
+    else say "Installing Video Downloader $latest..."; fi
     base="https://github.com/$REPO/releases/latest/download"
     say "Downloading $tarball..."
     fetch "$base/$tarball" "$work/$tarball"
