@@ -25,14 +25,14 @@ function Read-Text([string]$name) { return [System.IO.File]::ReadAllText((Join-P
 
 # ---------------------------------------------------------------- files
 Write-Host "`nFiles"
-foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Release.ps1', 'Tests.ps1') {
+foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Release.ps1', 'Tests.ps1', 'get.ps1') {
     Check "$f has no syntax errors" {
         $t = $null; $e = $null
         [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $f), [ref]$t, [ref]$e)
         if ($e.Count) { throw (($e | ForEach-Object { $_.ToString() }) -join ' | ') }
     }
 }
-foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Release.ps1', 'Tests.ps1', 'Setup.cmd', 'README.txt') {
+foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Release.ps1', 'Tests.ps1', 'get.ps1', 'Setup.cmd', 'README.txt') {
     Check "$f is plain ASCII (Windows PowerShell 5.1 and cmd misread other characters)" {
         $b = [System.IO.File]::ReadAllBytes((Join-Path $root $f))
         $n = 0; foreach ($x in $b) { if ($x -gt 127) { $n++ } }
@@ -40,7 +40,7 @@ foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Rel
     }
 }
 foreach ($f in 'Guide.html', 'VideoDownloader.user.js', 'VideoDownloader.ico', 'extension-manifest.json', 'extension-icon.png', 'README.md', 'LICENSE',
-           'video-downloader.py', 'install.sh', 'video-downloader.png', 'README-linux.txt', 'build-linux-release.py') {
+           'video-downloader.py', 'install.sh', 'video-downloader.png', 'README-linux.txt', 'build-linux-release.py', 'get.ps1') {
     Check "$f is present" { Test-Path -LiteralPath (Join-Path $root $f) }
 }
 
@@ -85,7 +85,7 @@ if (-not $psa -and $env:GITHUB_ACTIONS) {
 }
 if ($psa) {
     Import-Module $psa
-    foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Release.ps1', 'Tests.ps1') {
+    foreach ($f in 'VideoDownloader.ps1', 'Install.ps1', 'Uninstall.ps1', 'Build-Release.ps1', 'Tests.ps1', 'get.ps1') {
         Check "$f has no analyzer findings" {
             $found = @(Invoke-ScriptAnalyzer -Path (Join-Path $root $f) -Severity Error, Warning, Information)
             if ($found.Count) { throw (($found | ForEach-Object { 'line {0}: {1} ({2})' -f $_.Line, $_.Message, $_.RuleName }) -join ' | ') }
@@ -162,6 +162,27 @@ Check 'audio from sites that only have video+sound files, and each download has 
     Expect $a[[array]::IndexOf($a, '-f') + 1] 'ba[ext=m4a]/ba/b'
     Expect $a[[array]::IndexOf($a, '--audio-format') + 1] 'm4a'
     Expect (@($a | Where-Object { $_ -like 'temp:*' })[0]) ('temp:' + (Join-Path 'T' 'job-20260101-5'))
+}
+Check 'setup spots Tampermonkey in the browser that opens links' {
+    $t = $null; $e = $null
+    $ia = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'Install.ps1'), [ref]$t, [ref]$e)
+    . ([scriptblock]::Create(($ia.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'Test-Tampermonkey' }, $true) | Select-Object -First 1).Extent.Text))
+    $fake = Join-Path ([System.IO.Path]::GetTempPath()) ('vd-tm-' + [guid]::NewGuid().ToString('N'))
+    $saved = $env:LOCALAPPDATA, $env:APPDATA
+    try {
+        $env:LOCALAPPDATA = Join-Path $fake 'Local'; $env:APPDATA = Join-Path $fake 'Roaming'
+        if (Test-Tampermonkey 'ChromeHTML') { throw 'nothing is installed yet' }
+        New-Item -ItemType Directory -Force -Path (Join-Path $env:LOCALAPPDATA (Join-Path 'Google' (Join-Path 'Chrome' (Join-Path 'User Data' (Join-Path 'Profile 2' (Join-Path 'Extensions' 'dhdgffkkebhmkfjojejmpbldmpobfkfo')))))) | Out-Null
+        if (-not (Test-Tampermonkey 'ChromeHTML')) { throw 'Chrome: not found' }
+        if (Test-Tampermonkey 'MSEdgeHTM') { throw 'Edge has no Tampermonkey here' }
+        New-Item -ItemType Directory -Force -Path (Join-Path $env:APPDATA (Join-Path 'Mozilla' (Join-Path 'Firefox' (Join-Path 'Profiles' (Join-Path 'ab12.default-release' 'extensions'))))) | Out-Null
+        if (Test-Tampermonkey 'FirefoxURL-308046B0AF4A39CB') { throw 'Firefox has no Tampermonkey yet' }
+        Set-Content -LiteralPath (Join-Path $env:APPDATA (Join-Path 'Mozilla' (Join-Path 'Firefox' (Join-Path 'Profiles' (Join-Path 'ab12.default-release' (Join-Path 'extensions' 'firefox@tampermonkey.net.xpi')))))) -Value 'x'
+        if (-not (Test-Tampermonkey 'FirefoxURL-308046B0AF4A39CB')) { throw 'Firefox: not found' }
+    } finally {
+        $env:LOCALAPPDATA, $env:APPDATA = $saved
+        Remove-Item -LiteralPath $fake -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 Check 'Pause only ever stops Video Downloader''s own programs' {
     $other = if ($IsWin) { Start-Process -FilePath (Join-Path $env:WINDIR 'System32\PING.EXE') -ArgumentList '-n 30 127.0.0.1' -WindowStyle Hidden -PassThru }

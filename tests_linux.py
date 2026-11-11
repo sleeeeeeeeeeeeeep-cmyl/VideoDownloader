@@ -286,6 +286,29 @@ class SafeSettings(unittest.TestCase):
             vd.download('http://github.com/x', os.devnull)
 
 
+class SpotsTampermonkey(unittest.TestCase):
+    def test_finds_it_only_in_the_default_browser(self):
+        home = tempfile.mkdtemp()
+        old = dict(os.environ)
+        try:
+            os.environ['HOME'] = home
+            os.environ.pop('XDG_CONFIG_HOME', None)
+            self.assertFalse(vd.has_tampermonkey('google-chrome.desktop'))
+            os.makedirs(os.path.join(home, '.config', 'google-chrome', 'Profile 1', 'Extensions', 'dhdgffkkebhmkfjojejmpbldmpobfkfo'))
+            self.assertTrue(vd.has_tampermonkey('google-chrome.desktop'))
+            self.assertFalse(vd.has_tampermonkey('brave-browser.desktop'))
+            self.assertFalse(vd.has_tampermonkey('firefox_firefox.desktop'))
+            ext = os.path.join(home, 'snap', 'firefox', 'common', '.mozilla', 'firefox', 'x1.default', 'extensions')
+            os.makedirs(ext)
+            open(os.path.join(ext, 'firefox@tampermonkey.net.xpi'), 'w').close()
+            self.assertTrue(vd.has_tampermonkey('firefox_firefox.desktop'))
+            self.assertFalse(vd.has_tampermonkey(''))
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+            shutil.rmtree(home)
+
+
 class Downloads(unittest.TestCase):
     def test_checksums(self):
         sums = 'a' * 64 + '  VideoDownloader-linux-4.6.tar.gz\n' + 'b' * 64 + ' *dist/other.zip\n'

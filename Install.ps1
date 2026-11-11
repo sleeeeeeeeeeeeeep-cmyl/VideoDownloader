@@ -48,6 +48,34 @@ Write-Host '  This installs Video Downloader for your Windows account.'
 Write-Host '  It also installs three free helper programs if you do not have them:'
 Write-Host '    yt-dlp (does the downloading), FFmpeg (joins video + sound), Deno (needed by YouTube).'
 
+$ButtonUrl = 'https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js'
+
+# Is Tampermonkey already in the browser that opens links? Then setup can open the button's install page straight away
+# (one click on Install) instead of walking through the guide. Only looks for the extension's folder; reads nothing.
+function Test-Tampermonkey([string]$progId) {
+    if (-not $progId) { try { $progId = [string](Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice' -ErrorAction Stop).ProgId } catch { Write-Debug $_ } }
+    if ($progId -like 'FirefoxURL*') {
+        $profiles = Join-Path $env:APPDATA 'Mozilla\Firefox\Profiles'
+        return [bool](Get-ChildItem -LiteralPath $profiles -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'extensions\firefox@tampermonkey.net.xpi') })
+    }
+    $root = switch -Wildcard ($progId) {
+        'ChromeHTML*'  { Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data' }
+        'MSEdgeHTM*'   { Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data' }
+        'BraveHTML*'   { Join-Path $env:LOCALAPPDATA 'BraveSoftware\Brave-Browser\User Data' }
+        'VivaldiHTM*'  { Join-Path $env:LOCALAPPDATA 'Vivaldi\User Data' }
+        'OperaGX*'     { Join-Path $env:APPDATA 'Opera Software\Opera GX Stable' }
+        'Opera*'       { Join-Path $env:APPDATA 'Opera Software\Opera Stable' }
+        default        { $null }
+    }
+    if (-not $root -or -not (Test-Path -LiteralPath $root)) { return $false }
+    $ids = 'dhdgffkkebhmkfjojejmpbldmpobfkfo', 'iikmkjmpaadaobahmlepeloendndfphd', 'gcalenpjmijncebpfijmoaglllgpjagf'   # Chrome store, Edge store, beta
+    $dirs = @($root) + @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq 'Default' -or $_.Name -like 'Profile *' } | ForEach-Object { $_.FullName })
+    foreach ($d in $dirs) { foreach ($id in $ids) { if (Test-Path -LiteralPath (Join-Path $d "Extensions\$id")) { return $true } } }
+    return $false
+}
+
 # The guide in the download is a template: the button script and version number are filled in here
 function Write-Guide([string]$template, [string]$out, [string]$userScript, [string]$version) {
     $g = [System.IO.File]::ReadAllText($template, [System.Text.Encoding]::UTF8)
@@ -164,18 +192,23 @@ Good 'Listed in Settings > Apps (uninstall from there)'
 
 # ---------- 4. the browser part ----------
 Step '4/4  The Download button for YouTube'
-if (-not $Quiet) {   # (an automatic update shouldn't overwrite what you have on the clipboard)
+$haveTm = $false
+if (-not $Quiet) { $haveTm = Test-Tampermonkey }
+if ($haveTm) {
+    Good 'Tampermonkey is in your browser: the button''s install page opens in a moment - click Install there.'
+} elseif (-not $Quiet) {   # (an automatic update shouldn't overwrite what you have on the clipboard)
     try {
         Set-Clipboard -Value (Get-Content -LiteralPath (Join-Path $Dest 'VideoDownloader.user.js') -Raw -Encoding UTF8)
         Good 'The button script is copied to your clipboard'
     } catch { Bad 'Could not copy to the clipboard - use the Copy button in the guide instead.' }
 }
-if (-not $Quiet) { Note 'The guide that just opened shows the 3 quick steps to add the button to your browser.' }
+if (-not $Quiet -and -not $haveTm) { Note 'The guide that just opened shows the 3 quick steps to add the button to your browser.' }
 
 Write-Host ''
 Write-Host '  All done!  Video Downloader is in your Start menu.' -ForegroundColor Green
 if (-not $Quiet) {
     try { Start-Process (Join-Path $Dest 'Guide.html') } catch { Write-Debug $_ }
+    if ($haveTm) { Start-Sleep -Seconds 2; try { Start-Process $ButtonUrl } catch { Write-Debug $_ } }   # (in front of the guide)
     try { Start-Process -FilePath $Conhost -ArgumentList ('--headless "{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -App' -f $PsExe, $Script) } catch { Write-Debug $_ }
 }
 Finish 0

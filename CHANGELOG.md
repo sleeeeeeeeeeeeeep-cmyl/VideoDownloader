@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.6.2
+
+Easier to install.
+
+- **Windows in one line:** press Windows key + R, paste the line from the README's Quick install, press Enter. It
+  downloads the newest release, checks it against the published SHA-256 checksums and runs Setup: no ZIP to extract,
+  no "Windows protected your PC" warning (`get.ps1`).
+- **The button in one click:** if Tampermonkey is already in your default browser (Chrome, Edge, Brave, Vivaldi,
+  Opera or Firefox), Setup opens the button's install page for you on Windows and Linux; just click Install.
+- The README starts with a Quick install section for both systems.
+- **Settings > Update now:** gets the newest Video Downloader if there is one, otherwise updates yt-dlp and Deno.
+- **The version is shown** in the bottom-right corner of the main window (click it for what's new) and in Settings.
+
 ## 4.6.1
 
 A full check of every file for anything that could stop downloads, or let someone else get at what you download.

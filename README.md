@@ -8,6 +8,30 @@ computer or your phone.
 No ads, no account, no server: everything runs on your own computer, using the open-source
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) to do the downloading.
 
+## Quick install
+
+**Windows 10 or 11:** press **Windows key + R**, paste this line, press **Enter**:
+
+```text
+powershell -c "[Net.ServicePointManager]::SecurityProtocol=3072;irm https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/get.ps1|iex"
+```
+
+**Linux:** paste this into a terminal and press **Enter**:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/install.sh | sh
+```
+
+Both download the newest release from this page, check it against its published SHA-256 checksums, and install it for
+your account only (no administrator password). Then add the **Download** button: install
+[Tampermonkey](https://www.tampermonkey.net) in your browser and click
+[**install the button**](https://raw.githubusercontent.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/main/VideoDownloader.user.js)
+→ **Install**. If Tampermonkey is already there, setup opens that install page for you. (Chrome, Edge, Brave and
+Opera also need **Allow User Scripts** switched on once: see
+[Add the Download button](#add-the-download-button-to-youtube).)
+
+Prefer to download a file instead? See [Install](#install) below.
+
 ## Contents
 
 - [What it does](#what-it-does)
@@ -56,6 +80,10 @@ This section is for Windows. On Linux, see [Linux](#linux).
 **You need** Windows 10 (version 1809 or newer) or Windows 11. No administrator rights are needed: everything is
 installed for your Windows account only.
 
+**The quickest way** is the one line in [Quick install](#quick-install): press **Windows key + R**, paste it, press
+**Enter**. It does steps 1 to 3 below for you (download, check, run Setup), and Windows doesn't show the "Windows
+protected your PC" warning because no downloaded program is opened. To do it by hand instead:
+
 1. Open the [latest release](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/releases/latest) and download
    **`VideoDownloader-x.y.zip`**. (Not the "Source code" files, and not the extension ZIP.)
 2. Right-click the ZIP and choose **Extract All...**. Setup can't run from inside a ZIP.
@@ -68,7 +96,8 @@ installed for your Windows account only.
      with Windows' own package manager, winget, if you don't already have them;
    - adds **Video Downloader** to your Start menu and desktop;
    - connects the browser button, and lists the app in **Settings > Apps** so it can be removed like any other program.
-5. When it finishes, the setup guide opens. It walks you through adding the Download button (next section).
+5. When it finishes, the setup guide opens. It walks you through adding the Download button (next section). If
+   Tampermonkey is already in your default browser, the button's install page opens too: just click **Install**.
 
 > [!TIP]
 > **Check your download (optional).** Every release includes `SHA256SUMS.txt`. In PowerShell, run
@@ -88,7 +117,8 @@ ChromeOS's Linux, and others) and installs for your account only, so it never as
 
 ### Install on Linux
 
-Either download **`VideoDownloader-linux-x.y.tar.gz`** from the
+The quickest way is the one line in [Quick install](#quick-install). Or download
+**`VideoDownloader-linux-x.y.tar.gz`** from the
 [latest release](https://github.com/sleeeeeeeeeeeeeep-cmyl/VideoDownloader/releases/latest), extract it, open a
 terminal in the extracted folder and run:
 
@@ -109,7 +139,8 @@ Setup:
   `~/.local/lib/video-downloader/bin`, plus [FFmpeg](https://ffmpeg.org) if your system doesn't have it, each checked
   against the checksum its makers publish;
 - adds **Video Downloader** to your applications menu and the `video-downloader` command to `~/.local/bin`;
-- registers `ytdl://` links, so the YouTube button can hand downloads to the app.
+- registers `ytdl://` links, so the YouTube button can hand downloads to the app;
+- if Tampermonkey is already in your default browser, opens the button's install page (click **Install**).
 
 If setup says Tk is missing, install it and you're done:
 
@@ -441,6 +472,9 @@ Click **Help** in the window:
   top right of the window. Click it and choose **Yes**: it downloads the new version from this repository's releases,
   checks it against the published SHA-256 checksum, installs it and reopens the window. Your settings, queue and
   history are kept. **No** shows what's new instead.
+- **Settings > Update now** does it whenever you like: it installs the newest Video Downloader if there is one,
+  otherwise it updates yt-dlp and Deno and tells you everything is up to date. The version you have is shown next to
+  the button, and in the bottom-right corner of the main window (click it to see what's new).
 - **yt-dlp and Deno:** updated every week by themselves (Settings > General), and whenever a download fails in a way
   that an update might fix. **Help > Check for updates now** does it straight away.
 - **The YouTube button:** Tampermonkey updates it by itself if you installed it from the link above.
@@ -611,6 +645,7 @@ and the helper programs yt-dlp, FFmpeg and Deno (in Settings > Apps; other progr
 | `extension-manifest.json`, `extension-icon.png` | The button as a browser extension |
 | `Tests.ps1` | Automatic checks (run by GitHub on Windows for every upload) |
 | `Build-Release.ps1` | Builds the release ZIPs and SHA-256 checksums |
+| `get.ps1` | The Windows one-line install: downloads the newest release, checks its SHA-256 and runs its Setup |
 | `video-downloader.py` | The whole Linux app: window (Tk), background downloader, settings, updates, installer (Python 3.8+, standard library only) |
 | `install.sh` | Linux setup: runs `video-downloader.py --install`, or downloads and checks the newest release first |
 | `README-linux.txt`, `video-downloader.png` | The Linux download's quick guide and icon |

@@ -43,11 +43,13 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-APP_VERSION = '4.6.1'
+APP_VERSION = '4.6.2'
 APP_NAME = 'Video Downloader'
 UPDATE_REPO = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'
 PROJECT_URL = 'https://github.com/' + UPDATE_REPO
 README_LINUX_URL = PROJECT_URL + '#linux'
+BUTTON_GUIDE_URL = PROJECT_URL + '#add-the-download-button-to-youtube'
+CHANGELOG_URL = PROJECT_URL + '/blob/main/CHANGELOG.md'
 RELEASES_PAGE = PROJECT_URL + '/releases/latest'
 USERSCRIPT_URL = 'https://raw.githubusercontent.com/' + UPDATE_REPO + '/main/VideoDownloader.user.js'
 
@@ -1590,6 +1592,51 @@ def tk_missing_hint():
     return 'install the Tk package for Python 3 (often called python3-tk)'
 
 
+def default_browser():
+    try:
+        r = subprocess.run(['xdg-settings', 'get', 'default-web-browser'], capture_output=True, text=True, timeout=10, check=False)
+        return r.stdout.strip().lower()
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
+def has_tampermonkey(browser=None):
+    """Is Tampermonkey in the browser that opens links? Then setup opens the button's install page straight away.
+    Only looks for the extension's folder; reads nothing."""
+    browser = default_browser() if browser is None else browser.lower()
+    home = os.path.expanduser('~')
+    cfg = _xdg('XDG_CONFIG_HOME', '.config')
+    if 'firefox' in browser or 'librewolf' in browser:
+        roots = [os.path.join(home, '.mozilla', 'firefox'), os.path.join(home, 'snap', 'firefox', 'common', '.mozilla', 'firefox'),
+                 os.path.join(home, '.var', 'app', 'org.mozilla.firefox', '.mozilla', 'firefox'), os.path.join(home, '.librewolf')]
+        for r in roots:
+            try:
+                for prof in os.listdir(r):
+                    if os.path.exists(os.path.join(r, prof, 'extensions', 'firefox@tampermonkey.net.xpi')):
+                        return True
+            except OSError:
+                pass
+        return False
+    chromium_roots = {
+        'google-chrome': [os.path.join(cfg, 'google-chrome'), os.path.join(cfg, 'google-chrome-beta')],
+        'chromium': [os.path.join(cfg, 'chromium'), os.path.join(home, 'snap', 'chromium', 'common', 'chromium')],
+        'brave': [os.path.join(cfg, 'BraveSoftware', 'Brave-Browser')],
+        'microsoft-edge': [os.path.join(cfg, 'microsoft-edge')],
+        'vivaldi': [os.path.join(cfg, 'vivaldi')],
+        'opera': [os.path.join(cfg, 'opera')],
+    }
+    roots = next((v for k, v in chromium_roots.items() if k in browser), [])
+    ids = ('dhdgffkkebhmkfjojejmpbldmpobfkfo', 'iikmkjmpaadaobahmlepeloendndfphd', 'gcalenpjmijncebpfijmoaglllgpjagf')
+    for r in roots:
+        try:
+            profiles = [r] + [os.path.join(r, p) for p in os.listdir(r) if p == 'Default' or p.startswith('Profile ')]
+        except OSError:
+            continue
+        if any(os.path.isdir(os.path.join(p, 'Extensions', i)) for p in profiles for i in ids):
+            return True
+    return False
+
+
 def install(quiet=False):
     src_dir = os.path.dirname(os.path.abspath(__file__))
     print('\n  ==============================================')
@@ -1624,8 +1671,12 @@ def install(quiet=False):
         subprocess.run(['update-desktop-database', APPS_DIR], capture_output=True, check=False)
     print('    OK  "Video Downloader" is in your applications menu, and ytdl:// links open it')
     print('\n  4/4  The Download button for YouTube')
-    print('    Install Tampermonkey in your browser, then open this link and click Install:')
-    print('    ' + USERSCRIPT_URL)
+    have_tm = not quiet and has_tampermonkey()
+    if have_tm:
+        print('    OK  Tampermonkey is in your browser: the button\'s install page opens in a moment - click Install there.')
+    else:
+        print('    Install Tampermonkey in your browser (https://www.tampermonkey.net), then open this link and click Install:')
+        print('    ' + USERSCRIPT_URL)
     P.ensure()
     try:
         import tkinter  # noqa: F401  (only checking that it's there)
@@ -1637,7 +1688,7 @@ def install(quiet=False):
     print('\n  All done! Open "Video Downloader" from your applications menu.\n')
     if not quiet:
         if sys.stdout.isatty():
-            open_path(README_LINUX_URL)
+            open_path(USERSCRIPT_URL if have_tm else BUTTON_GUIDE_URL)
     else:
         subprocess.Popen([sys.executable, '-I', os.path.join(P.app_home, 'video-downloader.py'), '--app'], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -1757,8 +1808,14 @@ def run_window(auto_opened=False, open_settings=False):
 
     bottom = ttk.Frame(root, padding=12)
     bottom.pack(fill='x')
-    status_line = ttk.Label(bottom, text='', foreground='#555')
-    status_line.pack(side='top', fill='x', pady=(0, 6))
+    status_row = ttk.Frame(bottom)
+    status_row.pack(side='top', fill='x', pady=(0, 6))
+    # the version, in the corner (click it for what's new)
+    version_lbl = ttk.Label(status_row, text='v' + APP_VERSION, foreground='#777')
+    version_lbl.pack(side='right')
+    version_lbl.bind('<Button-1>', lambda _e: open_path(CHANGELOG_URL))
+    status_line = ttk.Label(status_row, text='', foreground='#555')
+    status_line.pack(side='left', fill='x', expand=True)
     remove_btn = ttk.Button(bottom, text='Remove')
     clear_btn = ttk.Button(bottom, text='Clear finished')
     folder_btn = ttk.Button(bottom, text='Open videos folder')
@@ -2001,6 +2058,40 @@ def run_window(auto_opened=False, open_settings=False):
                 save_settings(SETTINGS)
                 win.destroy()
                 open_settings_window()
+
+        # which version this is, and a button to get the newest one (and the newest yt-dlp and Deno)
+        upd_row = ttk.Frame(win, padding=(10, 0, 10, 8))
+        upd_row.pack(fill='x')
+        ttk.Label(upd_row, text='You have Video Downloader ' + APP_VERSION).pack(side='left')
+        upd_btn = ttk.Button(upd_row, text='Update now')
+        upd_btn.pack(side='right')
+
+        def update_now():
+            upd_btn.configure(text='Checking...', state='disabled')
+
+            def work():
+                try:
+                    msg = install_app_update()
+                except Exception as e:  # noqa: BLE001 - shown to the person
+                    err = str(e)
+                    calls.put(lambda: (messagebox.showwarning(APP_NAME, "Video Downloader couldn't update itself:\n\n" + err +
+                                                           '\n\nCheck your internet connection, or get it from ' + RELEASES_PAGE, parent=root),
+                                       upd_btn.winfo_exists() and upd_btn.configure(text='Update now', state='normal')))
+                    return
+                if msg is None:
+                    ui['close'] = True          # the new version opens by itself
+                    return
+                also = ''
+                if not runner_active():          # nothing newer: bring yt-dlp and Deno up to date instead
+                    update_tools(force=True)
+                    init_tools()
+                    also = '\n\nyt-dlp and Deno are up to date too.'
+                done = 'You have the newest version of Video Downloader ({}).{}'.format(APP_VERSION, also)
+                calls.put(lambda: (messagebox.showinfo(APP_NAME, done, parent=root),
+                                   upd_btn.winfo_exists() and upd_btn.configure(text='Update now', state='normal')))
+            threading.Thread(target=work, daemon=True).start()
+
+        upd_btn.configure(command=update_now)
 
         btns = ttk.Frame(win, padding=(10, 0, 10, 10))
         btns.pack(fill='x')

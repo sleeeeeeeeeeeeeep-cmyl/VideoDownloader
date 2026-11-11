@@ -1,5 +1,5 @@
 <#
-  Video Downloader 4.6.1
+  Video Downloader 4.6.2
   Download videos and audio from YouTube (and most other video sites) with yt-dlp.
 
     No arguments / -App    the Video Downloader window (paste links, watch progress, pause, settings)
@@ -20,7 +20,7 @@
 param([string]$Uri, [switch]$App, [switch]$AutoOpened, [switch]$RunQueue, [switch]$Settings, [switch]$Menu, [switch]$UpdateNow, [switch]$NetCheck,
       [switch]$History, [string]$HistoryTask, [string]$Path, [switch]$CheckApp, [switch]$UpdateApp, [switch]$ConnectionCheck)
 
-$AppVersion = '4.6.1'
+$AppVersion = '4.6.2'
 $UpdateRepo = 'sleeeeeeeeeeeeeep-cmyl/VideoDownloader'   # GitHub project: new versions are announced here
 
 # ============================== DEFAULT SETTINGS ==============================
@@ -866,7 +866,20 @@ function Invoke-AppUpdate {
         $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$UpdateRepo/releases/latest" -Headers $hdr -TimeoutSec 30
         if ([string]$r.html_url -match ('^https://github\.com/' + [regex]::Escape($UpdateRepo) + '/releases/tag/[A-Za-z0-9._-]+$')) { $page = [string]$r.html_url }
         $new = ConvertTo-Version ([string]$r.tag_name)
-        if (-not $new -or $new -le (ConvertTo-Version $AppVersion)) { Show-ErrorBox "You already have the newest version ($AppVersion)." -icon 'Information'; return }
+        if (-not $new -or $new -le (ConvertTo-Version $AppVersion)) {
+            # nothing newer: bring yt-dlp and Deno up to date instead (not while they are downloading)
+            $also = ''
+            if (-not (Test-RunnerActive) -and $env:OS -eq 'Windows_NT') {
+                try {
+                    $script:IsRunner = $false
+                    Initialize-Toolset; Invoke-ToolUpdate
+                    Write-Status @{ state = 'idle'; message = '' } -Force
+                    $also = "`n`nyt-dlp and Deno are up to date too."
+                } catch { Write-Debug $_ }
+            }
+            Show-ErrorBox "You have the newest version of Video Downloader ($AppVersion).$also" -icon 'Information'
+            return
+        }
         $dlPrefix = 'https://github.com/' + $UpdateRepo + '/releases/download/'
         $zipA = @($r.assets | Where-Object { $_.name -match '^VideoDownloader-[0-9.]+\.zip$' }) | Select-Object -First 1
         $sumA = @($r.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' }) | Select-Object -First 1
@@ -1479,6 +1492,26 @@ function Show-SettingsWindow($ownerForm = $null) {
     $tabsHeight = 14 + $rowsMax * 36 + 40 + 30
     $tabs.Size = [System.Drawing.Size]::new(678, $tabsHeight)
     $y = 12 + $tabsHeight + 12
+
+    # which version this is, and a button to get the newest one (and the newest yt-dlp and Deno)
+    $ver = New-Object System.Windows.Forms.Label
+    $ver.Text = "You have Video Downloader $AppVersion"
+    $ver.Location = [System.Drawing.Point]::new(12, $y + 7)
+    $ver.Size = [System.Drawing.Size]::new(300, 22)
+    $form.Controls.Add($ver)
+    $updNow = New-Object System.Windows.Forms.Button
+    $updNow.Text = 'Update now'
+    $updNow.Location = [System.Drawing.Point]::new(540, $y)
+    $updNow.Size = [System.Drawing.Size]::new(150, 32)
+    $updTip = New-Object System.Windows.Forms.ToolTip
+    $updTip.SetToolTip($updNow, 'Gets the newest Video Downloader if there is one, otherwise updates yt-dlp and Deno. Your settings and downloads are kept.')
+    $updNow.Add_Click({
+        $this.Enabled = $false
+        $this.Text = 'Checking...'
+        Invoke-Hidden @('-UpdateApp')      # (its own process: installing a new version closes and reopens this window)
+    })
+    $form.Controls.Add($updNow)
+    $y += 44
 
     $note = New-Object System.Windows.Forms.Label
     $note.Text = 'Changes apply to the next download.'
@@ -2642,9 +2675,20 @@ function Show-App {
     $helpBtn = Initialize-Control -type Button -x 616 -y 530 -w 90 -h 32 -text 'Help' -anchor 'Bottom, Right'
     $setBtn = Initialize-Control -type Button -x 712 -y 530 -w 94 -h 32 -text 'Settings' -anchor 'Bottom, Right'
     $form.Controls.AddRange(@($openBtn, $removeBtn, $clearBtn, $histBtn, $helpBtn, $setBtn))
-    $script:StatusLine = Initialize-Control -type Label -x 14 -y 570 -w 792 -h 22 -text '' -anchor 'Bottom, Left, Right'
+    $script:StatusLine = Initialize-Control -type Label -x 14 -y 570 -w 700 -h 22 -text '' -anchor 'Bottom, Left, Right'
     $script:StatusLine.AutoEllipsis = $true
     $form.Controls.Add($script:StatusLine)
+    # the version, in the corner (click it for what's new)
+    $verLink = New-Object System.Windows.Forms.LinkLabel
+    $verLink.Text = "v$AppVersion"
+    $verLink.Location = [System.Drawing.Point]::new(716, 570); $verLink.Size = [System.Drawing.Size]::new(90, 22)
+    $verLink.Anchor = 'Bottom, Right'; $verLink.TextAlign = 'MiddleRight'
+    $verLink.LinkColor = [System.Drawing.Color]::DimGray; $verLink.ActiveLinkColor = [System.Drawing.Color]::DimGray
+    $verLink.LinkBehavior = 'HoverUnderline'
+    $verTip = New-Object System.Windows.Forms.ToolTip
+    $verTip.SetToolTip($verLink, "You have Video Downloader $AppVersion. Click to see what's new; Settings > Update now gets the newest version.")
+    $verLink.Add_LinkClicked({ try { Start-Process ('https://github.com/{0}/blob/main/CHANGELOG.md' -f $UpdateRepo) } catch { Write-Debug $_ } })
+    $form.Controls.Add($verLink)
 
     # --- what the buttons do
     $goBtn.Add_Click({
